@@ -1,0 +1,530 @@
+---
+title: Courses
+description: Create courses, add concepts, track student progress, and manage enrollments
+---
+
+## Overview
+
+The Courses API enables structured learning paths by grouping concepts with mastery thresholds. Key features:
+
+- Create courses with modules
+- Add concepts with learning objectives
+- Activate courses and enroll students
+- Track individual student progress toward completion
+
+**Authentication**: All course endpoints require authentication.
+
+**Base path**: `/api/courses`
+
+**Source**: `src/api/routes/courses.ts`
+
+## Course Model
+
+Courses have:
+- **Status**: "draft" or "active"
+- **Owner**: User who created the course
+- **Organization**: Optional org scoping
+- **Modules**: Optional grouping within the course
+- **Concepts**: Linked concepts with mastery thresholds
+
+**Source**: `src/api/db/schema.js` (courses table)
+
+## Endpoints
+
+### Create Course
+
+Create a new course in draft status.
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.entendi.dev/api/courses \
+  -H "x-api-key: <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Advanced React Patterns",
+    "description": "Master compound components, render props, and hooks patterns",
+    "orgId": "org_123"
+  }'
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.entendi.dev/api/courses', {
+  method: 'POST',
+  headers: {
+    'x-api-key': '<your-api-key>',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    name: 'Advanced React Patterns',
+    description: 'Master compound components, render props, and hooks patterns',
+    orgId: 'org_123'
+  })
+});
+const course = await response.json();
+```
+</CodeGroup>
+
+#### Request Body
+
+<ParamField body="name" type="string" required>
+  Course name (1-200 characters)
+</ParamField>
+
+<ParamField body="description" type="string">
+  Course description (max 2000 characters)
+</ParamField>
+
+<ParamField body="orgId" type="string">
+  Organization ID for org-scoped courses
+</ParamField>
+
+#### Response
+
+Returns the created course object:
+
+<ResponseField name="id" type="string">
+  UUID course identifier
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Course name
+</ResponseField>
+
+<ResponseField name="description" type="string">
+  Course description
+</ResponseField>
+
+<ResponseField name="status" type="'draft' | 'active'">
+  Course status (starts as "draft")
+</ResponseField>
+
+<ResponseField name="ownerId" type="string">
+  User ID of creator
+</ResponseField>
+
+<ResponseField name="orgId" type="string | null">
+  Organization ID (if org-scoped)
+</ResponseField>
+
+<ResponseField name="createdAt" type="string">
+  ISO timestamp of creation
+</ResponseField>
+
+<ResponseField name="updatedAt" type="string">
+  ISO timestamp of last update
+</ResponseField>
+
+**Status**: `201 Created`
+
+**Validation errors**: `400 Bad Request` with Zod validation details
+
+**Source**: `src/api/routes/courses.ts:38-59`
+
+---
+
+### List Courses
+
+Retrieve all courses owned by the authenticated user.
+
+<CodeGroup>
+```bash cURL
+curl https://api.entendi.dev/api/courses \
+  -H "x-api-key: <your-api-key>"
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.entendi.dev/api/courses', {
+  headers: { 'x-api-key': '<your-api-key>' }
+});
+const courses = await response.json();
+```
+</CodeGroup>
+
+#### Response
+
+Returns an array of course objects (same schema as create response).
+
+**Source**: `src/api/routes/courses.ts:62-68`
+
+---
+
+### Get Course Details
+
+Retrieve a course with its concepts and modules.
+
+<CodeGroup>
+```bash cURL
+curl https://api.entendi.dev/api/courses/:id \
+  -H "x-api-key: <your-api-key>"
+```
+
+```javascript JavaScript
+const response = await fetch(
+  `https://api.entendi.dev/api/courses/${courseId}`,
+  {
+    headers: { 'x-api-key': '<your-api-key>' }
+  }
+);
+const course = await response.json();
+```
+</CodeGroup>
+
+#### Path Parameters
+
+<ParamField path="id" type="string" required>
+  Course UUID
+</ParamField>
+
+#### Response
+
+Returns the course object with additional fields:
+
+<ResponseField name="concepts" type="array">
+  Course concepts
+  
+  <Expandable title="concept object">
+    <ResponseField name="courseId" type="string">
+      Course UUID
+    </ResponseField>
+    <ResponseField name="conceptId" type="string">
+      Concept identifier
+    </ResponseField>
+    <ResponseField name="moduleId" type="string | null">
+      Module ID (if grouped)
+    </ResponseField>
+    <ResponseField name="learningObjective" type="string | null">
+      Specific learning objective for this concept
+    </ResponseField>
+    <ResponseField name="requiredMasteryThreshold" type="number">
+      Minimum mastery required (0-1 scale, default 0.7)
+    </ResponseField>
+    <ResponseField name="createdAt" type="string">
+      ISO timestamp
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="modules" type="array">
+  Course modules
+  
+  <Expandable title="module object">
+    <ResponseField name="id" type="string">
+      Module UUID
+    </ResponseField>
+    <ResponseField name="courseId" type="string">
+      Course UUID
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Module name
+    </ResponseField>
+    <ResponseField name="description" type="string | null">
+      Module description
+    </ResponseField>
+    <ResponseField name="order" type="number">
+      Display order
+    </ResponseField>
+    <ResponseField name="createdAt" type="string">
+      ISO timestamp
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Status codes**:
+- `200 OK` - Course found
+- `404 Not Found` - Course does not exist
+
+**Source**: `src/api/routes/courses.ts:71-82`
+
+---
+
+### Add Concept to Course
+
+Link a concept to a course with optional learning objective and mastery threshold.
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.entendi.dev/api/courses/:id/concepts \
+  -H "x-api-key: <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "conceptId": "react-context-api",
+    "moduleId": "module_xyz",
+    "learningObjective": "Implement global state management using Context",
+    "requiredMasteryThreshold": 0.8
+  }'
+```
+
+```javascript JavaScript
+const response = await fetch(
+  `https://api.entendi.dev/api/courses/${courseId}/concepts`,
+  {
+    method: 'POST',
+    headers: {
+      'x-api-key': '<your-api-key>',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      conceptId: 'react-context-api',
+      moduleId: 'module_xyz',
+      learningObjective: 'Implement global state management using Context',
+      requiredMasteryThreshold: 0.8
+    })
+  }
+);
+const courseConcept = await response.json();
+```
+</CodeGroup>
+
+#### Path Parameters
+
+<ParamField path="id" type="string" required>
+  Course UUID
+</ParamField>
+
+#### Request Body
+
+<ParamField body="conceptId" type="string" required>
+  Concept identifier (must exist in concepts table)
+</ParamField>
+
+<ParamField body="moduleId" type="string">
+  Module UUID (must belong to this course)
+</ParamField>
+
+<ParamField body="learningObjective" type="string">
+  Specific learning objective (max 2000 characters)
+</ParamField>
+
+<ParamField body="requiredMasteryThreshold" type="number">
+  Minimum mastery to consider complete (0-1 scale, default 0.7)
+</ParamField>
+
+#### Response
+
+Returns the created course_concept join record.
+
+**Status codes**:
+- `201 Created` - Concept added successfully
+- `400 Bad Request` - Validation error
+- `404 Not Found` - Course, concept, or module not found
+
+**Validation**:
+- Verifies course exists
+- Verifies concept exists
+- Verifies module exists and belongs to course (if provided)
+
+**Source**: `src/api/routes/courses.ts:85-116`
+
+---
+
+### Activate Course
+
+Set course status to "active" to allow enrollments.
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.entendi.dev/api/courses/:id/activate \
+  -H "x-api-key: <your-api-key>"
+```
+
+```javascript JavaScript
+const response = await fetch(
+  `https://api.entendi.dev/api/courses/${courseId}/activate`,
+  {
+    method: 'POST',
+    headers: { 'x-api-key': '<your-api-key>' }
+  }
+);
+const result = await response.json();
+```
+</CodeGroup>
+
+#### Path Parameters
+
+<ParamField path="id" type="string" required>
+  Course UUID
+</ParamField>
+
+#### Response
+
+```json
+{
+  "id": "course_uuid",
+  "status": "active"
+}
+```
+
+**Status codes**:
+- `200 OK` - Course activated
+- `404 Not Found` - Course does not exist
+
+**Source**: `src/api/routes/courses.ts:119-132`
+
+---
+
+### Enroll in Course
+
+Enroll the authenticated user in a course.
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.entendi.dev/api/courses/:id/enroll \
+  -H "x-api-key: <your-api-key>"
+```
+
+```javascript JavaScript
+const response = await fetch(
+  `https://api.entendi.dev/api/courses/${courseId}/enroll`,
+  {
+    method: 'POST',
+    headers: { 'x-api-key': '<your-api-key>' }
+  }
+);
+const enrollment = await response.json();
+```
+</CodeGroup>
+
+#### Path Parameters
+
+<ParamField path="id" type="string" required>
+  Course UUID
+</ParamField>
+
+#### Response
+
+Returns the enrollment record:
+
+<ResponseField name="courseId" type="string">
+  Course UUID
+</ResponseField>
+
+<ResponseField name="userId" type="string">
+  User ID
+</ResponseField>
+
+<ResponseField name="enrolledAt" type="string">
+  ISO timestamp of enrollment
+</ResponseField>
+
+**Status codes**:
+- `201 Created` - Enrollment created
+- `404 Not Found` - Course does not exist
+- `409 Conflict` - User already enrolled
+
+**Source**: `src/api/routes/courses.ts:135-154`
+
+---
+
+### Get Student Progress
+
+Retrieve a student's progress toward course completion.
+
+<CodeGroup>
+```bash cURL
+curl https://api.entendi.dev/api/courses/:id/progress/:userId \
+  -H "x-api-key: <your-api-key>"
+```
+
+```javascript JavaScript
+const response = await fetch(
+  `https://api.entendi.dev/api/courses/${courseId}/progress/${userId}`,
+  {
+    headers: { 'x-api-key': '<your-api-key>' }
+  }
+);
+const progress = await response.json();
+```
+</CodeGroup>
+
+#### Path Parameters
+
+<ParamField path="id" type="string" required>
+  Course UUID
+</ParamField>
+
+<ParamField path="userId" type="string" required>
+  Student user ID
+</ParamField>
+
+#### Response
+
+<ResponseField name="courseId" type="string">
+  Course UUID
+</ResponseField>
+
+<ResponseField name="userId" type="string">
+  Student user ID
+</ResponseField>
+
+<ResponseField name="concepts" type="array">
+  Progress for each course concept
+  
+  <Expandable title="concept progress object">
+    <ResponseField name="conceptId" type="string">
+      Concept identifier
+    </ResponseField>
+    <ResponseField name="learningObjective" type="string | null">
+      Specific learning objective
+    </ResponseField>
+    <ResponseField name="mastery" type="number">
+      Current mastery estimate (0-1 scale)
+    </ResponseField>
+    <ResponseField name="threshold" type="number">
+      Required mastery threshold (0-1 scale)
+    </ResponseField>
+    <ResponseField name="met" type="boolean">
+      Whether threshold is met (mastery >= threshold)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="completionRatio" type="number">
+  Fraction of concepts with met thresholds (0-1 scale)
+</ResponseField>
+
+**Status codes**:
+- `200 OK` - Progress retrieved
+- `404 Not Found` - Course does not exist
+
+**Mastery calculation**: Uses `pMastery(mu)` to convert IRT scale (μ) to 0-1 probability.
+
+**Source**: `src/api/routes/courses.ts:157-196`
+
+## Mastery Thresholds
+
+Course concepts use a **required mastery threshold** (0-1 scale) to determine completion:
+
+- **Default**: 0.7 (70% mastery)
+- **Range**: 0.0 to 1.0
+- **Interpretation**: Student must have ≥ threshold mastery to be considered complete
+
+**Example thresholds**:
+- `0.5` - Basic familiarity
+- `0.7` - Solid understanding (default)
+- `0.85` - Mastery
+- `0.95` - Expert level
+
+**Source**: `src/api/routes/courses.ts:27`, `src/schemas/types.ts:11-13`
+
+## Zod Validation
+
+Request bodies are validated using Zod schemas:
+
+```typescript
+const createCourseSchema = z.object({
+  name: z.string().min(1).max(200),
+  description: z.string().max(2000).optional(),
+  orgId: z.string().max(200).optional(),
+});
+
+const addConceptSchema = z.object({
+  conceptId: z.string().min(1).max(200),
+  moduleId: z.string().max(200).optional(),
+  learningObjective: z.string().max(2000).optional(),
+  requiredMasteryThreshold: z.number().min(0).max(1).default(0.7),
+});
+```
+
+**Validation errors** return `400 Bad Request` with detailed error information.
+
+**Source**: `src/api/routes/courses.ts:16-28`

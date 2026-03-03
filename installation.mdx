@@ -1,0 +1,517 @@
+---
+title: "Installation"
+description: "Complete guide to installing and configuring Entendi"
+---
+
+## Quick Install
+
+For most users, the marketplace installation is the fastest way to get started:
+
+```bash
+claude plugin marketplace add https://github.com/LemonThyme/entendi
+claude plugin install entendi
+```
+
+<Tip>
+  After installation, restart Claude Code and run the [quickstart guide](/quickstart) to link your account.
+</Tip>
+
+## Prerequisites
+
+Before installing Entendi, ensure you have:
+
+<AccordionGroup>
+  <Accordion title="Claude Code CLI" icon="terminal">
+    Entendi requires Claude Code CLI version 0.1.0 or higher.
+
+    Check your version:
+
+    ```bash
+    claude --version
+    ```
+
+    Install or update Claude Code at [claude.com/claude-code](https://claude.com/claude-code).
+  </Accordion>
+
+  <Accordion title="Node.js 22+" icon="node-js">
+    The MCP server requires Node.js 22 or higher.
+
+    Check your version:
+
+    ```bash
+    node --version
+    ```
+
+    Download from [nodejs.org](https://nodejs.org) if needed.
+  </Accordion>
+
+  <Accordion title="Internet connection" icon="wifi">
+    Entendi communicates with the API at `https://api.entendi.dev` for:
+    
+    - Authentication
+    - Concept detection and mastery tracking
+    - Tutor sessions
+    - Dashboard sync
+
+    The plugin gracefully handles offline mode but won't track concepts without connectivity.
+  </Accordion>
+</AccordionGroup>
+
+## Installation Methods
+
+### Method 1: Marketplace Install (Recommended)
+
+Use the Claude Code plugin marketplace for automatic setup:
+
+<Steps>
+  <Step title="Add the marketplace repository">
+    ```bash
+    claude plugin marketplace add https://github.com/LemonThyme/entendi
+    ```
+  </Step>
+
+  <Step title="Install the plugin">
+    ```bash
+    claude plugin install entendi
+    ```
+
+    This downloads the plugin to your plugins directory and registers the MCP server.
+  </Step>
+
+  <Step title="Verify installation">
+    ```bash
+    claude plugin list
+    ```
+
+    You should see:
+
+    ```
+    entendi (v0.2.0) - Comprehension accountability layer for AI-assisted work
+    ```
+  </Step>
+</Steps>
+
+### Method 2: Build from Source
+
+For development or custom builds:
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/LemonThyme/entendi.git
+    cd entendi
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    ```bash
+    npm install
+    ```
+  </Step>
+
+  <Step title="Set up environment variables">
+    Copy the example environment file:
+
+    ```bash
+    cp .env.example .env
+    ```
+
+    Edit `.env` and fill in:
+
+    ```bash
+    DATABASE_URL=postgresql://user:password@host:5432/database
+    BETTER_AUTH_SECRET=$(openssl rand -base64 32)
+    BETTER_AUTH_URL=http://localhost:3456
+    ENTENDI_API_URL=http://localhost:3456
+    ```
+
+    <Warning>
+      The database is only required if you're running your own API server. Regular plugin users don't need this.
+    </Warning>
+  </Step>
+
+  <Step title="Build the plugin">
+    ```bash
+    npm run build
+    ```
+
+    This compiles:
+    - Hook bundles → `dist/hooks/`
+    - MCP server → `dist/mcp/`
+    - Plugin assembly → `dist/plugin/`
+  </Step>
+
+  <Step title="Install to Claude Code">
+    ```bash
+    npm run plugin:reinstall
+    ```
+
+    Or use the setup script for a complete installation:
+
+    ```bash
+    ./setup.sh
+    ```
+  </Step>
+</Steps>
+
+### Method 3: Manual Install
+
+Install a pre-built plugin package manually:
+
+<Steps>
+  <Step title="Download the plugin">
+    Download the latest release from [GitHub Releases](https://github.com/LemonThyme/entendi/releases).
+
+    Extract the archive:
+
+    ```bash
+    tar -xzf entendi-v0.2.0.tar.gz
+    ```
+  </Step>
+
+  <Step title="Copy to plugins directory">
+    Find your Claude Code plugins directory:
+
+    ```bash
+    # macOS/Linux
+    ~/.claude/plugins/
+
+    # Windows
+    %APPDATA%\Claude\plugins\
+    ```
+
+    Copy the extracted plugin:
+
+    ```bash
+    cp -r entendi ~/.claude/plugins/
+    ```
+  </Step>
+
+  <Step title="Restart Claude Code">
+    ```bash
+    claude
+    ```
+
+    The plugin loads automatically on startup.
+  </Step>
+</Steps>
+
+## Configuration
+
+Entendi stores configuration at `~/.entendi/config.json`:
+
+```json
+{
+  "apiKey": "ent_...",
+  "apiUrl": "https://api.entendi.dev"
+}
+```
+
+### API Key
+
+Generate an API key by running the login flow:
+
+```
+You: "entendi login"
+```
+
+This opens a browser window for authentication. After confirming, the key is saved automatically.
+
+<Note>
+  API keys are organization-scoped. If you're part of multiple organizations, you can switch keys by running `entendi login` again.
+</Note>
+
+### Self-Hosted API
+
+To use a self-hosted Entendi API:
+
+1. Edit `~/.entendi/config.json`:
+
+   ```json
+   {
+     "apiKey": "your-api-key",
+     "apiUrl": "https://your-api.example.com"
+   }
+   ```
+
+2. Restart Claude Code:
+
+   ```bash
+   claude
+   ```
+
+See the [deployment guide](https://github.com/LemonThyme/entendi#deployment) for self-hosting instructions.
+
+## Plugin Structure
+
+Understanding the plugin layout helps with debugging:
+
+```
+~/.claude/plugins/entendi/
+├── .claude-plugin/
+│   └── plugin.json          # Plugin metadata
+├── .mcp.json                 # MCP server configuration
+├── hooks/
+│   ├── session-start.js      # Injects concept-detection skill
+│   └── user-prompt-submit.js # Handles login, probes, tutoring
+├── mcp/
+│   └── server.js             # MCP server (entendi_observe, etc.)
+└── skills/
+    └── concept-detection/    # LLM-level concept detection
+```
+
+### Hooks
+
+Entendi uses two Claude Code hooks:
+
+<AccordionGroup>
+  <Accordion title="SessionStart" icon="play">
+    Runs when a new Claude Code session starts.
+
+    **Purpose**: Injects the concept-detection skill into every session.
+
+    **Location**: `hooks/session-start.js`
+
+    **What it does**:
+    - Checks if user is authenticated
+    - Loads the concept-detection skill
+    - Initializes session state
+
+    View logs:
+
+    ```bash
+    grep "session-start" ~/.entendi/debug.log
+    ```
+  </Accordion>
+
+  <Accordion title="UserPromptSubmit" icon="message">
+    Runs before each user message is sent to Claude.
+
+    **Purpose**: Handles pending probes, login detection, and teach-me patterns.
+
+    **Location**: `hooks/user-prompt-submit.js`
+
+    **What it does**:
+    - Detects `entendi login` command
+    - Checks for pending probe responses
+    - Handles tutor session state
+
+    View logs:
+
+    ```bash
+    grep "user-prompt-submit" ~/.entendi/debug.log
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### MCP Tools
+
+The MCP server provides these tools to Claude:
+
+| Tool | Purpose |
+|------|--------|
+| `entendi_observe` | Submit concepts for probe scheduling |
+| `entendi_record_evaluation` | Record probe response scores |
+| `entendi_start_tutor` | Begin a Socratic tutor session |
+| `entendi_advance_tutor` | Continue tutor dialogue |
+| `entendi_dismiss` | Skip a probe permanently |
+| `entendi_get_status` | Query mastery state |
+| `entendi_get_zpd_frontier` | Get concepts ready to learn next |
+| `entendi_login` | Link device to Entendi account |
+
+<Note>
+  Tools 1-7 require authentication. Only `entendi_login` works without an API key.
+</Note>
+
+## Debugging
+
+### Debug Logs
+
+All hooks, MCP tools, and API calls log to `~/.entendi/debug.log`.
+
+**View logs in real-time**:
+
+```bash
+tail -f ~/.entendi/debug.log
+```
+
+**Search for errors**:
+
+```bash
+grep -i error ~/.entendi/debug.log
+```
+
+**Filter by component**:
+
+```bash
+grep "tool:entendi_observe" ~/.entendi/debug.log
+```
+
+### Common Issues
+
+<AccordionGroup>
+  <Accordion title="Plugin not loading" icon="exclamation-triangle">
+    **Symptoms**: No probes appear, no debug logs written.
+
+    **Causes**:
+    1. Plugin not installed correctly
+    2. Node.js version too old
+    3. MCP server failed to start
+
+    **Fix**:
+
+    ```bash
+    # Check Node version
+    node --version  # Should be 22+
+
+    # Reinstall plugin
+    claude plugin uninstall entendi
+    claude plugin install entendi
+
+    # Check logs
+    tail -f ~/.entendi/debug.log
+    ```
+  </Accordion>
+
+  <Accordion title="Authentication errors" icon="lock">
+    **Symptoms**: Tools return "Unauthorized" or "session expired".
+
+    **Causes**:
+    1. API key missing or invalid
+    2. Key was revoked
+    3. Organization access changed
+
+    **Fix**:
+
+    ```bash
+    # Check config
+    cat ~/.entendi/config.json
+
+    # Re-authenticate
+    claude
+    # Then in the session:
+    You: "entendi login"
+    ```
+  </Accordion>
+
+  <Accordion title="API connection failures" icon="wifi-slash">
+    **Symptoms**: Tools return "Can't reach the Entendi API".
+
+    **Causes**:
+    1. No internet connection
+    2. Firewall blocking requests
+    3. API server down
+
+    **Fix**:
+
+    ```bash
+    # Test API connectivity
+    curl https://api.entendi.dev/health
+
+    # Check firewall rules (allow HTTPS to api.entendi.dev)
+
+    # View detailed error
+    grep "ECONNREFUSED\|ETIMEDOUT" ~/.entendi/debug.log
+    ```
+  </Accordion>
+
+  <Accordion title="No concepts detected" icon="magnifying-glass">
+    **Symptoms**: Working normally but no probes ever appear.
+
+    **Causes**:
+    1. Concepts already mastered (high confidence)
+    2. Rate limits preventing probes
+    3. Conversation doesn't mention technical concepts
+
+    **Fix**:
+
+    ```bash
+    # Check if concepts are being observed
+    grep "entendi_observe" ~/.entendi/debug.log
+
+    # View mastery status
+    You: "What's my mastery level for V8 isolates?"
+
+    # Check rate limit state
+    grep "rate limit" ~/.entendi/debug.log
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Updating
+
+### Marketplace Plugin
+
+Update to the latest version:
+
+```bash
+claude plugin update entendi
+```
+
+Or reinstall:
+
+```bash
+claude plugin uninstall entendi
+claude plugin install entendi
+```
+
+### Source Build
+
+Pull the latest changes and rebuild:
+
+```bash
+cd entendi
+git pull origin main
+npm install
+npm run plugin:reinstall
+```
+
+<Warning>
+  After updating, restart any active Claude Code sessions to load the new version.
+</Warning>
+
+## Uninstalling
+
+Remove Entendi completely:
+
+<Steps>
+  <Step title="Uninstall the plugin">
+    ```bash
+    claude plugin uninstall entendi
+    ```
+  </Step>
+
+  <Step title="Remove configuration (optional)">
+    ```bash
+    rm -rf ~/.entendi
+    ```
+
+    This deletes:
+    - API key (`config.json`)
+    - Debug logs (`debug.log`)
+    - Session state
+  </Step>
+
+  <Step title="Revoke API access (optional)">
+    Visit [entendi.dev/settings](https://entendi.dev/settings) and revoke your API key.
+
+    This prevents the key from being used if the config file is recovered.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Link your account and complete your first probe.
+  </Card>
+  <Card title="Dashboard" icon="chart-line" href="https://entendi.dev">
+    View your knowledge profile and mastery metrics.
+  </Card>
+  <Card title="Development" icon="code" href="https://github.com/LemonThyme/entendi#development">
+    Contribute to Entendi or build custom features.
+  </Card>
+  <Card title="MCP Protocol" icon="book" href="https://modelcontextprotocol.io">
+    Learn about the Model Context Protocol standard.
+  </Card>
+</CardGroup>

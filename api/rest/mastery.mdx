@@ -1,0 +1,350 @@
+---
+title: Mastery
+description: Retrieve mastery states, track assessment history, and explore the ZPD frontier
+---
+
+## Overview
+
+The Mastery API provides access to user concept states based on Item Response Theory (IRT). Key features:
+
+- Retrieve all mastery states for the authenticated user
+- Get mastery for individual concepts
+- View assessment history
+- Explore the Zone of Proximal Development (ZPD) frontier
+
+**Authentication**: All mastery endpoints require authentication.
+
+**Base path**: `/api/mastery`
+
+**Source**: `src/api/routes/mastery.ts`
+
+## Mastery Model
+
+Mastery states use Bayesian IRT with Gaussian priors:
+
+- **μ (mu)**: Mean on IRT scale (real line, typically -3 to +3)
+- **σ (sigma)**: Standard deviation (uncertainty, starts at 1.5)
+- **Mastery probability**: `p = 1 / (1 + exp(-μ))` (sigmoid transform to 0-1 scale)
+
+**Initial state**: `μ = 0.0, σ = 1.5` (50% mastery, high uncertainty)
+
+**Source**: `src/schemas/types.ts:1-13`
+
+## Endpoints
+
+### Get All Mastery States
+
+Retrieve all concept mastery states for the authenticated user.
+
+<CodeGroup>
+```bash cURL
+curl https://api.entendi.dev/api/mastery \
+  -H "x-api-key: <your-api-key>"
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.entendi.dev/api/mastery', {
+  headers: { 'x-api-key': '<your-api-key>' }
+});
+const states = await response.json();
+```
+</CodeGroup>
+
+#### Response
+
+Returns an array of mastery state objects:
+
+<ResponseField name="userId" type="string">
+  User ID
+</ResponseField>
+
+<ResponseField name="conceptId" type="string">
+  Concept identifier
+</ResponseField>
+
+<ResponseField name="mu" type="number">
+  Mean on IRT scale (real line)
+</ResponseField>
+
+<ResponseField name="sigma" type="number">
+  Standard deviation (uncertainty)
+</ResponseField>
+
+<ResponseField name="assessmentCount" type="number">
+  Total assessments for this concept
+</ResponseField>
+
+<ResponseField name="lastAssessed" type="string | null">
+  ISO timestamp of last assessment
+</ResponseField>
+
+<ResponseField name="createdAt" type="string">
+  ISO timestamp of first assessment
+</ResponseField>
+
+<ResponseField name="updatedAt" type="string">
+  ISO timestamp of last update
+</ResponseField>
+
+**Source**: `src/api/routes/mastery.ts:13-20`
+
+---
+
+### Get ZPD Frontier
+
+Retrieve concepts at the edge of the user's Zone of Proximal Development.
+
+<CodeGroup>
+```bash cURL
+curl "https://api.entendi.dev/api/mastery/zpd-frontier?threshold=0.7" \
+  -H "x-api-key: <your-api-key>"
+```
+
+```javascript JavaScript
+const response = await fetch(
+  'https://api.entendi.dev/api/mastery/zpd-frontier?threshold=0.7',
+  {
+    headers: { 'x-api-key': '<your-api-key>' }
+  }
+);
+const data = await response.json();
+```
+</CodeGroup>
+
+#### Query Parameters
+
+<ParamField query="threshold" type="number" default="0.7">
+  Mastery threshold for "not yet mastered" (0-1 scale)
+</ParamField>
+
+#### Response
+
+<ResponseField name="frontier" type="array">
+  Concepts at the ZPD frontier
+  
+  <Expandable title="frontier concept object">
+    <ResponseField name="id" type="string">
+      Concept identifier
+    </ResponseField>
+    <ResponseField name="domain" type="string">
+      Concept domain
+    </ResponseField>
+    <ResponseField name="specificity" type="string">
+      Granularity: "domain", "topic", "technique"
+    </ResponseField>
+    <ResponseField name="mu" type="number">
+      Current μ value (IRT scale)
+    </ResponseField>
+    <ResponseField name="sigma" type="number">
+      Current σ value (uncertainty)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**ZPD Definition**: Concepts where:
+1. User's mastery is **below threshold**
+2. All prerequisite concepts have mastery **≥ threshold**
+
+This identifies concepts that are "ready to learn" — not yet mastered but with prerequisites satisfied.
+
+**Algorithm**: SQL query with recursive CTE checking prerequisite mastery.
+
+**Source**: `src/api/routes/mastery.ts:23-46`
+
+---
+
+### Get Concept Mastery
+
+Retrieve the current mastery state for a specific concept.
+
+<CodeGroup>
+```bash cURL
+curl https://api.entendi.dev/api/mastery/:conceptId \
+  -H "x-api-key: <your-api-key>"
+```
+
+```javascript JavaScript
+const response = await fetch(
+  `https://api.entendi.dev/api/mastery/${conceptId}`,
+  {
+    headers: { 'x-api-key': '<your-api-key>' }
+  }
+);
+const mastery = await response.json();
+```
+</CodeGroup>
+
+#### Path Parameters
+
+<ParamField path="conceptId" type="string" required>
+  Concept identifier
+</ParamField>
+
+#### Response
+
+Returns the mastery state object (same schema as "Get All Mastery States").
+
+**Default response** (if never assessed):
+
+```json
+{
+  "mu": 0,
+  "sigma": 1.5,
+  "assessmentCount": 0
+}
+```
+
+**Source**: `src/api/routes/mastery.ts:49-62`
+
+---
+
+### Get Assessment History
+
+Retrieve the assessment event history for a concept.
+
+<CodeGroup>
+```bash cURL
+curl https://api.entendi.dev/api/mastery/:conceptId/history \
+  -H "x-api-key: <your-api-key>"
+```
+
+```javascript JavaScript
+const response = await fetch(
+  `https://api.entendi.dev/api/mastery/${conceptId}/history`,
+  {
+    headers: { 'x-api-key': '<your-api-key>' }
+  }
+);
+const events = await response.json();
+```
+</CodeGroup>
+
+#### Path Parameters
+
+<ParamField path="conceptId" type="string" required>
+  Concept identifier
+</ParamField>
+
+#### Response
+
+Returns an array of assessment events (up to 50, most recent first):
+
+<ResponseField name="id" type="string">
+  Event ID
+</ResponseField>
+
+<ResponseField name="userId" type="string">
+  User ID
+</ResponseField>
+
+<ResponseField name="conceptId" type="string">
+  Concept identifier
+</ResponseField>
+
+<ResponseField name="eventType" type="string">
+  Assessment type: "probe", "tutor_phase1", "tutor_phase4", "implicit"
+</ResponseField>
+
+<ResponseField name="rubricScore" type="number">
+  Score: 0 (fail), 1 (partial), 2 (good), 3 (excellent)
+</ResponseField>
+
+<ResponseField name="evaluatorConfidence" type="number">
+  Evaluator's confidence in the score (0-1 scale)
+</ResponseField>
+
+<ResponseField name="muBefore" type="number">
+  μ value before this assessment
+</ResponseField>
+
+<ResponseField name="muAfter" type="number">
+  μ value after this assessment
+</ResponseField>
+
+<ResponseField name="probeDepth" type="number">
+  Probe depth: 0 (recall), 1 (understand), 2 (apply), 3 (analyze)
+</ResponseField>
+
+<ResponseField name="tutored" type="boolean">
+  Whether this was a tutored assessment
+</ResponseField>
+
+<ResponseField name="responseText" type="string | null">
+  User's response text
+</ResponseField>
+
+<ResponseField name="integrityScore" type="number | null">
+  Confidence in assessment validity (0-1)
+</ResponseField>
+
+<ResponseField name="createdAt" type="string">
+  ISO timestamp of assessment
+</ResponseField>
+
+**Ordering**: Chronological (oldest first)
+
+**Limit**: 50 events
+
+**Source**: `src/api/routes/mastery.ts:65-79`
+
+## Converting μ to Mastery Probability
+
+To convert IRT scale (μ) to a 0-1 mastery probability:
+
+```javascript
+function pMastery(mu) {
+  return 1 / (1 + Math.exp(-mu));
+}
+```
+
+**Examples**:
+- `μ = -2` → `p ≈ 0.12` (12% mastery)
+- `μ = 0` → `p = 0.5` (50% mastery)
+- `μ = 1` → `p ≈ 0.73` (73% mastery)
+- `μ = 2` → `p ≈ 0.88` (88% mastery)
+
+**Source**: `src/schemas/types.ts:11-13`
+
+## Rubric Scores
+
+Assessments use a 4-level rubric:
+
+- **0**: Incorrect/No understanding
+- **1**: Partial understanding with significant gaps
+- **2**: Good understanding with minor gaps
+- **3**: Excellent/Complete understanding
+
+**Source**: `src/schemas/types.ts:178`
+
+## Assessment Event Types
+
+- **probe**: Unprompted knowledge check
+- **tutor_phase1**: Pre-tutoring assessment
+- **tutor_phase4**: Post-tutoring assessment
+- **implicit**: Inferred from work product (not explicit Q&A)
+
+**Source**: `src/schemas/types.ts:107`
+
+## Probe Depth Levels
+
+Probe depth follows Bloom's taxonomy:
+
+- **0**: Recall/Recognition
+- **1**: Understanding/Comprehension
+- **2**: Application
+- **3**: Analysis/Evaluation
+
+**Source**: Assessment event schema
+
+## ZPD Algorithm Details
+
+The ZPD frontier query:
+
+1. Converts all μ values to mastery probabilities using sigmoid
+2. Filters concepts with mastery < threshold
+3. Excludes concepts with any prerequisite below threshold
+4. Orders by concept ID
+
+**SQL**: Uses recursive CTE to traverse "requires" edges.
+
+**Source**: `src/api/routes/mastery.ts:28-43`

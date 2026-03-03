@@ -1,0 +1,393 @@
+---
+title: Knowledge Graph
+description: How Entendi maps your understanding across concepts
+icon: diagram-project
+---
+
+Entendi maintains a **knowledge graph** of all the concepts you've encountered, how well you understand them, and how they relate to each other. This graph powers everything from probe selection to learning recommendations.
+
+## What's in the Graph?
+
+The knowledge graph stores:
+
+<CardGroup cols={2}>
+  <Card title="Concepts" icon="lightbulb">
+    Technical concepts like `async-programming`, `redis-caching`, or `react-hooks`
+  </Card>
+  <Card title="Your mastery" icon="brain">
+    Bayesian estimates (μ, σ) of your understanding for each concept
+  </Card>
+  <Card title="Memory state" icon="clock">
+    Stability, difficulty, and retrievability from the FSRS model
+  </Card>
+  <Card title="Relationships" icon="link">
+    Prerequisites ("requires"), related concepts, and domain hierarchies
+  </Card>
+  <Card title="Assessment history" icon="list">
+    Every probe, response, score, and tutoring session
+  </Card>
+  <Card title="Misconceptions" icon="triangle-exclamation">
+    Detected misunderstandings and whether they've been corrected
+  </Card>
+</CardGroup>
+
+## Concept Nodes
+
+Each concept in the graph is a node with:
+
+<CodeGroup>
+```typescript Concept Node Structure
+{
+  conceptId: "async-programming",
+  name: "Async Programming",
+  domain: "javascript",
+  specificity: "topic",
+  
+  // Item Response Theory parameters
+  itemParams: {
+    discrimination: 1.2,    // How well probes distinguish mastery
+    thresholds: [-1.5, 0.0, 1.5]  // Rubric score boundaries
+  },
+  
+  // Relationships to other concepts
+  relationships: [
+    { type: "requires", target: "promises" },
+    { type: "requires", target: "event-loop" },
+    { type: "related", target: "error-handling" }
+  ]
+}
+```
+</CodeGroup>
+
+## User Concept State
+
+For each concept, the graph tracks **your** state:
+
+<CodeGroup>
+```typescript User Concept State
+{
+  userId: "user-123",
+  conceptId: "async-programming",
+  
+  // Bayesian mastery estimate
+  mastery: {
+    mu: 1.2,        // Latent mastery level
+    sigma: 0.6      // Uncertainty
+  },
+  
+  // FSRS memory model
+  memory: {
+    stability: 15,     // Days until you forget
+    difficulty: 5.2,   // Personal difficulty (1-10)
+    lastReview: "2026-03-01T10:30:00Z"
+  },
+  
+  // Assessment metadata
+  assessmentCount: 5,
+  lastAssessed: "2026-03-01T10:30:00Z",
+  
+  // Full history (last 50 events)
+  history: [
+    {
+      timestamp: "2026-03-01T10:30:00Z",
+      eventType: "probe",
+      question: "Why does async/await exist?",
+      response: "To avoid callback hell...",
+      rubricScore: 2,
+      depth: 1
+    },
+    // ...
+  ]
+}
+```
+</CodeGroup>
+
+## Concept Relationships
+
+The graph tracks three types of relationships:
+
+<Steps>
+  <Step title="Requires (prerequisite)">
+    Concept A **requires** Concept B if you need to understand B before mastering A.
+    
+    Example: `async-programming` requires `promises` and `event-loop`
+  </Step>
+  
+  <Step title="Related">
+    Concepts that often appear together or share techniques.
+    
+    Example: `error-handling` is related to `async-programming`
+  </Step>
+  
+  <Step title="Part-of (domain hierarchy)">
+    Concept A is **part of** domain D.
+    
+    Example: `react-hooks` is part of `frontend`
+  </Step>
+</Steps>
+
+Prerequisite relationships are used to compute your [Zone of Proximal Development](#zpd-frontier).
+
+## ZPD Frontier
+
+The **Zone of Proximal Development (ZPD) frontier** is the set of concepts you're ready to learn next—concepts where:
+
+1. All **prerequisites are mastered** (≥70% mastery)
+2. The concept itself is **not yet mastered** (less than 70% mastery)
+3. You've been **assessed at least once** (or `includeUnassessed=true`)
+
+<Info>
+The ZPD is a concept from [educational psychology](https://en.wikipedia.org/wiki/Zone_of_proximal_development)—it represents the "sweet spot" where learning is most effective.
+</Info>
+
+### Example ZPD Computation
+
+<Steps>
+  <Step title="Your current mastery">
+    - `promises`: 85% (mastered)
+    - `event-loop`: 90% (mastered)
+    - `async-programming`: 40% (not mastered)
+    - `async-iterators`: 10% (not mastered)
+    - `error-handling`: 75% (mastered)
+  </Step>
+  
+  <Step title="Prerequisites">
+    - `async-programming` requires: `promises`, `event-loop` ✅
+    - `async-iterators` requires: `async-programming` ❌
+  </Step>
+  
+  <Step title="ZPD frontier">
+    - `async-programming` is in your ZPD (prereqs met, not mastered)
+    - `async-iterators` is not (prereq not met)
+  </Step>
+</Steps>
+
+### Accessing Your ZPD
+
+You can query your ZPD frontier via:
+
+<Tabs>
+  <Tab title="MCP Tool">
+    ```typescript
+    const zpd = await tools.entendi_get_zpd_frontier({
+      threshold: 0.7,        // Mastery threshold
+      limit: 20,             // Max concepts to return
+      includeUnassessed: false
+    });
+    
+    // Returns:
+    // [
+    //   "async-programming",
+    //   "decorators",
+    //   "generics"
+    // ]
+    ```
+  </Tab>
+  
+  <Tab title="Dashboard">
+    The Entendi dashboard shows your ZPD frontier in the "What to Learn Next" section, sorted by:
+    
+    1. **Assessed first** (you've seen it before)
+    2. **Fisher information** (how informative the next probe would be)
+  </Tab>
+</Tabs>
+
+<Tip>
+Focus your learning on ZPD concepts for maximum efficiency. These are the concepts you're **ready** to master.
+</Tip>
+
+## Memory Decay & Retrievability
+
+The graph tracks when you last used each concept and computes **retrievability**—the probability you can still recall it:
+
+<CodeGroup>
+```typescript Retrievability Calculation
+function retrievability(t: number, S: number): number {
+  // t = days since last review
+  // S = stability (days)
+  return (1 + 0.234 * t / S) ** (-0.5);
+}
+
+// Example:
+// Last reviewed 10 days ago, stability = 15 days
+// R = (1 + 0.234 * 10 / 15) ^ (-0.5) ≈ 0.79 (79% recall)
+```
+</CodeGroup>
+
+When retrievability drops below 70%, the concept moves from [**routine** to **adjacent**](/features/concept-detection#novelty-classification) and may trigger a probe.
+
+## Assessment History
+
+Every interaction with a concept is logged:
+
+<AccordionGroup>
+  <Accordion title="Probe events">
+    - Timestamp
+    - Question asked
+    - Your response
+    - Rubric score (0-3)
+    - Depth level (0-3)
+    - Probe type (why, transfer, failure, etc.)
+  </Accordion>
+  
+  <Accordion title="Tutoring events">
+    - Timestamp
+    - Phase reached (1-4)
+    - Full dialogue transcript
+    - Detected misconceptions
+    - Final consolidation score
+  </Accordion>
+  
+  <Accordion title="Detection events">
+    - Timestamp
+    - Trigger context (code or prompt)
+    - Extraction method (LLM or AST)
+    - Novelty classification
+  </Accordion>
+</AccordionGroup>
+
+History is capped at **50 events per concept** to prevent unbounded growth.
+
+## Graph Operations
+
+<CardGroup cols={2}>
+  <Card title="Add concept" icon="plus">
+    Automatically happens when [concept detection](/features/concept-detection) identifies a new concept
+  </Card>
+  <Card title="Update mastery" icon="arrow-up">
+    Happens after every [probe](/features/probe-system) or [tutoring session](/features/socratic-tutor)
+  </Card>
+  <Card title="Query ZPD" icon="compass">
+    Returns concepts in your Zone of Proximal Development
+  </Card>
+  <Card title="Classify novelty" icon="tag">
+    Determines if a concept is novel, adjacent, routine, or critical
+  </Card>
+  <Card title="Get status" icon="info">
+    Returns your current state for a specific concept
+  </Card>
+  <Card title="Export graph" icon="download">
+    Serialize to JSON for backup or analysis
+  </Card>
+</CardGroup>
+
+## Where the Graph Lives
+
+Your knowledge graph is stored in two places:
+
+1. **Neon PostgreSQL database** (persistent, API-backed)
+2. **Local cache** (`~/.entendi/cache/graph.json`) for offline access
+
+The MCP server syncs between them automatically.
+
+## Graph Visualization
+
+The Entendi dashboard shows your knowledge graph as:
+
+- **Heatmap**: Concepts colored by mastery level (red = struggling, green = mastered)
+- **Network diagram**: Nodes and edges showing prerequisites
+- **Timeline**: Your assessment history over time
+
+<Note>
+The graph grows automatically as you work. You don't need to manually add concepts or relationships.
+</Note>
+
+## Example: Querying the Graph
+
+<CodeGroup>
+```typescript Get concept status
+const status = await tools.entendi_get_status({
+  conceptId: "async-programming"
+});
+
+// Returns:
+// {
+//   mastery: { mu: 1.2, sigma: 0.6 },
+//   pMastery: 0.77,
+//   memory: { stability: 15, difficulty: 5.2 },
+//   retrievability: 0.85,
+//   novelty: "routine",
+//   assessmentCount: 5,
+//   lastAssessed: "2026-03-01T10:30:00Z"
+// }
+```
+
+```typescript Get ZPD frontier
+const zpd = await tools.entendi_get_zpd_frontier({
+  threshold: 0.7,
+  limit: 10
+});
+
+// Returns:
+// [
+//   "async-programming",
+//   "decorators",
+//   "generics"
+// ]
+```
+</CodeGroup>
+
+## Graph Growth Over Time
+
+As you code, your graph evolves:
+
+<Steps>
+  <Step title="Day 1: Empty graph">
+    You start with no concepts assessed
+  </Step>
+  
+  <Step title="Week 1: Initial concepts">
+    Entendi detects 20-30 concepts from your work. Most are "novel".
+  </Step>
+  
+  <Step title="Month 1: Mastery emerges">
+    You've been probed on 50+ concepts. Frequently-used ones reach 70%+ mastery.
+  </Step>
+  
+  <Step title="Month 3: ZPD stabilizes">
+    Your ZPD frontier narrows to 10-15 concepts you're actively learning. Routine concepts stop triggering probes.
+  </Step>
+  
+  <Step title="Year 1: Long-term memory">
+    Some concepts decay due to disuse. Entendi re-probes to check retention.
+  </Step>
+</Steps>
+
+## Privacy & Export
+
+Your knowledge graph is **private** to your account. You can:
+
+- Export to JSON: `entendi_export_graph` (MCP tool)
+- Delete all data: Dashboard → Settings → Delete my data
+- Self-host: Run the [API locally](/deployment/self-hosting) to keep data on your machine
+
+<Warning>
+Deleting your graph is irreversible. Export first if you want a backup.
+</Warning>
+
+## Advanced: Custom Relationships
+
+You can manually add concept relationships via the API:
+
+<CodeGroup>
+```typescript Add prerequisite
+POST /api/concepts/async-programming/relationships
+{
+  "type": "requires",
+  "target": "promises",
+  "strength": 0.9
+}
+```
+
+```typescript Add related concept
+POST /api/concepts/react-hooks/relationships
+{
+  "type": "related",
+  "target": "react-lifecycle"
+}
+```
+</CodeGroup>
+
+<Tip>
+Entendi automatically infers many relationships from co-occurrence patterns, but you can add custom ones to refine your ZPD frontier.
+</Tip>

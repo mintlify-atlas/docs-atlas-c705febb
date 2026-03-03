@@ -1,0 +1,342 @@
+---
+title: Socratic Tutor
+description: A four-phase dialogue to help you discover understanding
+icon: comments
+---
+
+When you struggle on a probe or explicitly ask to learn a concept, Entendi offers a **Socratic tutoring session**—a structured dialogue that guides you toward genuine understanding through questioning, not lecturing.
+
+## What Is Socratic Tutoring?
+
+Instead of explaining concepts directly, the tutor:
+
+- Asks one focused question at a time
+- Builds on your previous answers
+- Detects misconceptions and guides you toward correction
+- Helps you **discover** insights rather than memorizing facts
+
+<Info>
+Socratic tutoring is based on the [Socratic method](https://en.wikipedia.org/wiki/Socratic_method), used in philosophy and education to develop critical thinking through dialogue.
+</Info>
+
+## When Tutoring Triggers
+
+A tutoring session starts when:
+
+1. You **explicitly request it**: "Teach me about async/await"
+2. You **struggle on a probe** (score 0-1) and the evaluator suggests follow-up
+3. A **misconception is detected** in your probe response
+
+<Note>
+Tutoring is always **opt-in**. If you just want the answer, you can tell Claude "skip tutoring and explain it directly."
+</Note>
+
+## The Four Phases
+
+Every tutoring session follows a structured progression:
+
+<Steps>
+  <Step title="Phase 1: Review" icon="clipboard-list">
+    **Goal**: Assess what you already know
+    
+    The tutor asks an open-ended question to establish a baseline:
+    
+    - "What do you already know about async/await?"
+    - "Can you describe when you've seen this concept used before?"
+    
+    Your answer helps the tutor calibrate the next phase.
+  </Step>
+  
+  <Step title="Phase 2: Guided Discovery" icon="compass">
+    **Goal**: Push toward deeper understanding
+    
+    Based on your Phase 1 response, the tutor identifies the biggest gap in your knowledge and asks a question that helps you **discover** the answer:
+    
+    - "What problem do you think async/await was designed to solve?"
+    - "Why can't you just use synchronous code for API calls?"
+    
+    The tutor never states the answer—only guides you toward it.
+  </Step>
+  
+  <Step title="Phase 3: Rectification" icon="triangle-exclamation">
+    **Goal**: Correct misconceptions
+    
+    If the tutor detected a misconception in your earlier answers, it asks a question that exposes the flaw:
+    
+    - "If async functions return immediately, why do we use 'await'?"
+    - "What would happen if you called an async function without await?"
+    
+    This phase uses counterexamples and edge cases to help you self-correct.
+  </Step>
+  
+  <Step title="Phase 4: Consolidation" icon="check-double">
+    **Goal**: Synthesize the full picture
+    
+    The tutor asks you to explain the concept in your own words, integrating everything you've learned:
+    
+    - "Can you now explain how async/await works and why it's useful?"
+    - "How would you explain this to someone who's never used it?"
+    
+    This is a summative assessment of your consolidated understanding.
+  </Step>
+</Steps>
+
+## Example Tutoring Session
+
+<CodeGroup>
+```text Phase 1: Review
+Tutor: You mentioned using decorators in your TypeScript code. What do you already know about how decorators work?
+
+You: They're like annotations in Java. You put @Something above a class or method.
+
+Tutor (internal): Surface understanding—knows the syntax but not the mechanics.
+```
+
+```text Phase 2: Guided Discovery
+Tutor: Right, the syntax is similar. But what do you think happens *when* the decorator runs? Is it at compile time, runtime, or somewhere else?
+
+You: Hmm... I think at runtime when the class is instantiated?
+
+Tutor (internal): Misconception detected—decorators run at class *definition* time, not instantiation.
+```
+
+```text Phase 3: Rectification
+Tutor: Let's test that. If you define a class with a decorator but never instantiate it, does the decorator still run?
+
+You: Oh wait—yes, it would. So it must run when the class is defined, not when you call `new MyClass()`.
+
+Tutor (internal): Misconception corrected through Socratic questioning.
+```
+
+```text Phase 4: Consolidation
+Tutor: Exactly. Can you now explain the full picture—when decorators run, what they receive as arguments, and why they're useful?
+
+You: Decorators are functions that run at class/method definition time. They receive the class or method as an argument and can modify it. They're useful for metaprogramming—adding behavior like logging or validation without changing the class code.
+
+Tutor (internal): Score 3/3—demonstrates consolidated understanding.
+```
+</CodeGroup>
+
+## How It Works Under the Hood
+
+Each phase uses a specialized prompt template that:
+
+1. Includes the **conversation history** so far
+2. Specifies the **phase goal** (review, discovery, rectification, consolidation)
+3. Optionally includes a **detected misconception** (Phase 3)
+4. Instructs the LLM to respond with a single focused question
+
+<CodeGroup>
+```typescript Tutor Prompt Structure
+{
+  phase: "Phase 2: Guided Discovery",
+  conceptName: "decorators",
+  exchanges: [
+    {
+      phase: "Phase 1",
+      question: "What do you already know about decorators?",
+      response: "They're like annotations in Java..."
+    }
+  ],
+  instructions: "Identify the biggest gap and ask a question that guides discovery."
+}
+```
+</CodeGroup>
+
+The tutor uses Claude Haiku for fast, conversational responses.
+
+## Misconception Detection
+
+Throughout the session, the tutor watches for misconceptions in your answers:
+
+<CardGroup cols={2}>
+  <Card title="Detected" icon="magnifying-glass">
+    If you say something incorrect, the tutor notes it and plans a rectification question
+  </Card>
+  <Card title="Corrected" icon="check">
+    Phase 3 uses Socratic questioning to help you self-correct
+  </Card>
+  <Card title="Logged" icon="database">
+    Misconceptions are recorded in your [knowledge graph](/features/knowledge-graph) for future reference
+  </Card>
+  <Card title="No lecturing" icon="ban">
+    The tutor never states the correct answer directly—you discover it
+  </Card>
+</CardGroup>
+
+<Warning>
+The tutor will **not** tell you the answer, even if you ask directly. It will guide you with questions until you reach the insight yourself.
+</Warning>
+
+## Tutor Guidelines
+
+The tutor follows these principles:
+
+<AccordionGroup>
+  <Accordion title="One question at a time" icon="1">
+    Never overwhelms you with multiple questions or long explanations
+  </Accordion>
+  
+  <Accordion title="Build on previous answers" icon="layer-group">
+    Each question uses your earlier responses to calibrate difficulty
+  </Accordion>
+  
+  <Accordion title="Detect but don't lecture" icon="user-graduate">
+    If you're wrong, the tutor asks a question that exposes why—not a correction
+  </Accordion>
+  
+  <Accordion title="Keep it concise" icon="message">
+    Questions are 1-2 sentences, conversational, not formal
+  </Accordion>
+  
+  <Accordion title="No tricks" icon="shield-halved">
+    Questions are always fair—no gotchas or trivia
+  </Accordion>
+</AccordionGroup>
+
+## Starting a Tutoring Session
+
+You can trigger tutoring in several ways:
+
+<Tabs>
+  <Tab title="Explicit request">
+    **You**: "Teach me about closures"
+    
+    **Claude**: "Sure, let's explore closures through dialogue. What do you already know about closures in JavaScript?"
+  </Tab>
+  
+  <Tab title="After a probe">
+    **Claude**: "You scored 1/3 on that probe. Would you like a tutoring session to dive deeper into Redis caching, or should we continue with your code?"
+    
+    **You**: "Yes, let's do tutoring"
+  </Tab>
+  
+  <Tab title="MCP tool (advanced)">
+    ```typescript
+    // Direct MCP tool call
+    await tools.entendi_start_tutor({
+      conceptId: "closures",
+      triggerContext: "User asked about variable capture in loops"
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Advancing Through Phases
+
+After you respond to each question, Entendi:
+
+1. Evaluates your answer (internally, not shown to you)
+2. Decides whether to advance to the next phase or probe deeper
+3. Generates the next question using the appropriate phase prompt
+
+<Steps>
+  <Step title="Phase 1 complete">
+    You answered the review question → Advance to Phase 2 (Discovery)
+  </Step>
+  
+  <Step title="Phase 2 complete">
+    You demonstrated understanding or revealed a misconception → Advance to Phase 3 (Rectification)
+  </Step>
+  
+  <Step title="Phase 3 complete">
+    Misconception corrected or deeper exploration finished → Advance to Phase 4 (Consolidation)
+  </Step>
+  
+  <Step title="Phase 4 complete">
+    You synthesized the full picture → Session ends, mastery updated
+  </Step>
+</Steps>
+
+<Info>
+If you're struggling, the tutor may stay in Phase 2 or 3 longer, asking multiple questions before advancing.
+</Info>
+
+## Exiting Early
+
+You can exit tutoring at any time:
+
+- "Skip this and just explain it"
+- "I want to get back to coding"
+- "Dismiss tutoring"
+
+Your mastery won't update if you exit early, but the session history is saved for next time.
+
+## Mastery Updates
+
+At the end of a tutoring session, your [Bayesian mastery](/features/bayesian-mastery) is updated based on:
+
+- Your Phase 4 consolidation response (scored 0-3)
+- How many phases you needed to reach understanding
+- Whether misconceptions were detected and corrected
+
+Successfully completing all four phases typically results in a **mastery boost** comparable to scoring 3/3 on a depth-3 probe.
+
+## Example: Full Session
+
+<CodeGroup>
+```text You request tutoring
+You: Teach me about React hooks
+```
+
+```text Phase 1: Review
+Claude: Let's explore React hooks together. What do you already know about hooks?
+
+You: They let you use state in function components.
+```
+
+```text Phase 2: Discovery
+Claude: Right. Why do you think React needed hooks when class components already had state?
+
+You: Because functional components are simpler and hooks make them more powerful?
+
+Claude: That's part of it. But what specific problems did class components have that hooks solve?
+
+You: Oh—maybe the 'this' binding issues and lifecycle methods being hard to organize?
+```
+
+```text Phase 3: Rectification
+Claude: Exactly. Now, what happens if you call useState conditionally—like inside an if statement?
+
+You: Hmm, I think it would break because React needs hooks to be called in the same order every render.
+
+Claude: Right. Why does React care about the order?
+
+You: Because it uses the call order to track which state variable is which?
+```
+
+```text Phase 4: Consolidation
+Claude: Exactly. Can you now explain the full picture—what hooks are, why they exist, and what their key constraint is?
+
+You: Hooks are functions like useState and useEffect that let you use React features in function components. They exist because class components had issues with 'this' binding and lifecycle complexity. The key constraint is that hooks must be called in the same order every render, so React can match state to hook calls.
+
+Claude: Perfect. Your mastery of 'react-hooks' updated: 40% → 78%.
+```
+</CodeGroup>
+
+<Tip>
+Tutoring sessions are most effective when you **engage deeply** with each question rather than giving surface answers. The tutor can detect when you're guessing vs. reasoning.
+</Tip>
+
+## Tutoring vs. Probes
+
+<CardGroup cols={2}>
+  <Card title="Probes" icon="magnifying-glass">
+    - Single question
+    - Quick assessment
+    - Minimal interruption
+    - Triggered automatically
+  </Card>
+  <Card title="Tutoring" icon="comments">
+    - Multi-turn dialogue
+    - Deep learning
+    - Dedicated time
+    - Opt-in only
+  </Card>
+</CardGroup>
+
+Use probes for **checking** understanding during work. Use tutoring for **building** understanding when you're ready to learn.
+
+<Note>
+All tutoring sessions are stored in your [knowledge graph](/features/knowledge-graph) and displayed in the Entendi dashboard.
+</Note>

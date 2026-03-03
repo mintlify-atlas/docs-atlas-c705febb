@@ -1,0 +1,228 @@
+---
+title: Developer Setup
+description: Set up your local development environment for contributing to Entendi
+---
+
+## Prerequisites
+
+Before you begin, ensure you have:
+
+- **Node.js 22+** — [Download from nodejs.org](https://nodejs.org)
+- **Git** — for cloning the repository
+- **Claude Code CLI** (optional) — for testing the plugin locally
+  ```bash
+  npm install -g @anthropic-ai/claude-code
+  ```
+
+## Quick Setup
+
+The fastest way to get started is using the automated setup script:
+
+```bash
+git clone https://github.com/LemonThyme/entendi.git
+cd entendi
+./setup.sh
+```
+
+The script will:
+1. Verify Node.js version (22+)
+2. Create `.env` from `.env.example`
+3. Validate required environment variables
+4. Install git commit hooks (enforces Conventional Commits)
+5. Install dependencies
+6. Build all components (hooks, MCP server, plugin, dashboard)
+7. Install the Claude Code plugin
+
+## Manual Setup
+
+If you prefer manual setup or are setting up CI/CD:
+
+### 1. Clone and Install
+
+```bash
+git clone https://github.com/LemonThyme/entendi.git
+cd entendi
+npm install
+```
+
+### 2. Configure Environment
+
+Create your `.env` file:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and fill in the required values:
+
+```bash
+# Required
+DATABASE_URL=postgresql://user:pass@ep-xxx.us-east-2.aws.neon.tech/entendi?sslmode=require
+BETTER_AUTH_SECRET=<generate-with-openssl-rand-base64-32>
+BETTER_AUTH_URL=http://localhost:3456
+
+# For local development
+ENTENDI_API_URL=http://localhost:3456
+```
+
+#### Environment Variables
+
+**Required:**
+
+- `DATABASE_URL` — Neon PostgreSQL connection string
+  - Get a free database at [neon.tech](https://neon.tech)
+  - Must include `?sslmode=require`
+- `BETTER_AUTH_SECRET` — Authentication secret
+  - Generate with: `openssl rand -base64 32`
+- `BETTER_AUTH_URL` — API base URL
+  - Use `http://localhost:3456` for local development
+  - Production: `https://api.entendi.dev`
+- `ENTENDI_API_URL` — API URL for hooks and MCP server
+  - Should match `BETTER_AUTH_URL`
+
+**Optional:**
+
+- `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` — Enable GitHub OAuth
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — Enable Google OAuth
+- `RESEND_API_KEY` / `RESEND_FROM_EMAIL` — Enable email notifications
+- `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` — Enable billing
+- `ENTENDI_CORS_ORIGINS` — Custom CORS origins (comma-separated)
+
+### 3. Build
+
+Build all components:
+
+```bash
+npm run build
+```
+
+This builds:
+- Hook JS bundles → `dist/hooks/`
+- MCP server bundle → `dist/mcp/`
+- Plugin assembly → `dist/plugin/`
+- Dashboard assets → `public/assets/`
+
+### 4. Install Git Hooks
+
+Install the commit message hook to enforce Conventional Commits:
+
+```bash
+cp scripts/commit-msg.sh .git/hooks/commit-msg
+chmod +x .git/hooks/commit-msg
+```
+
+### 5. Install Plugin
+
+Install the plugin to Claude Code:
+
+```bash
+claude plugin install entendi
+```
+
+Restart Claude Code after installation:
+
+```bash
+claude
+```
+
+## Development Workflow
+
+### After Making Code Changes
+
+Reinstall the plugin to pick up your changes:
+
+```bash
+npm run plugin:reinstall
+```
+
+This command:
+1. Runs the full build
+2. Clears Claude Code's plugin cache
+3. Reinstalls the plugin
+4. Stamps the plugin version with the current git hash
+
+Restart Claude Code to activate the updated plugin.
+
+### Running the API Server Locally
+
+Start the development API server:
+
+```bash
+npm run api:dev
+```
+
+The server runs on `http://localhost:3456`.
+
+### Running Tests
+
+```bash
+# Run all tests once
+npm test
+
+# Watch mode
+npm run test:watch
+```
+
+### Database Commands
+
+```bash
+npm run db:generate   # Generate migrations from schema changes
+npm run db:migrate    # Run migrations
+npm run db:push       # Push schema directly (dev only)
+npm run db:studio     # Open Drizzle Studio UI
+npm run db:seed       # Seed test data
+```
+
+### Linting
+
+```bash
+npm run lint          # Check for issues
+npm run lint:fix      # Auto-fix issues
+```
+
+## Devcontainer
+
+For isolated plugin testing (simulates a fresh user environment):
+
+1. Open the repo in VS Code or Cursor with the Dev Containers extension
+2. The container automatically installs Node 22, Claude Code CLI, and the plugin
+3. Run the test script:
+   ```bash
+   .devcontainer/test-plugin.sh
+   ```
+
+This validates hook behavior and plugin structure in a clean environment.
+
+## Debugging
+
+All hooks, MCP tools, and API calls log to:
+
+```
+~/.entendi/debug.log
+```
+
+Tail the log in real-time:
+
+```bash
+tail -f ~/.entendi/debug.log
+```
+
+## Common Commands
+
+| Command | Description |
+|---------|-------------|
+| `npm run api:dev` | Start local API server (port 3456) |
+| `npm run build` | Build all components |
+| `npm run plugin:reinstall` | Build + reinstall plugin |
+| `npm test` | Run test suite |
+| `npm run lint` | Check code quality |
+| `npm run db:studio` | Open database GUI |
+| `npx wrangler deploy` | Deploy to Cloudflare Workers |
+
+## Next Steps
+
+Once your environment is set up:
+
+1. Review the [Architecture](/development/architecture) to understand the system design
+2. Read the [Contributing Guide](/development/contributing) for workflow and conventions
+3. Check open issues on [GitHub](https://github.com/LemonThyme/entendi/issues)

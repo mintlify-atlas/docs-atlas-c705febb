@@ -1,0 +1,120 @@
+---
+title: 'MCP Tools Overview'
+description: 'Model Context Protocol integration for Entendi comprehension accountability'
+---
+
+## Introduction
+
+Entendi exposes its core functionality through MCP (Model Context Protocol) tools that AI coding assistants like Claude Code can call directly. These tools enable seamless comprehension tracking during development without disrupting the developer workflow.
+
+## Architecture
+
+The MCP server runs as a stdio process that communicates with Claude Code via JSON-RPC. All tools route through a Hono-based HTTP API that connects to a Neon PostgreSQL database.
+
+```
+Claude Code ──► MCP Server (stdio) ──► HTTP API (Hono) ──► Neon PostgreSQL
+```
+
+## Available Tools
+
+<CardGroup cols={2}>
+  <Card title="observe" icon="eye" href="/api/mcp/observe">
+    Detect concepts in code and decide whether to probe
+  </Card>
+  <Card title="record-evaluation" icon="clipboard-check" href="/api/mcp/record-evaluation">
+    Record probe/tutor evaluation and update mastery
+  </Card>
+  <Card title="tutor" icon="graduation-cap" href="/api/mcp/tutor">
+    Start and advance through 4-phase tutor sessions
+  </Card>
+  <Card title="query" icon="chart-line" href="/api/mcp/query">
+    Query mastery state and ZPD frontier
+  </Card>
+</CardGroup>
+
+## Authentication
+
+All MCP routes require authentication via:
+- **Session cookie** (for browser-based dashboard)
+- **API key** (for MCP server and hooks)
+
+Authentication is handled by the `requireAuth` middleware in `src/api/middleware/auth.ts`.
+
+## Core Concepts
+
+### Concept Detection
+
+Concepts are detected through three sources:
+- **package**: npm/pypi package imports
+- **ast**: AST-parsed code symbols (classes, functions)
+- **llm**: LLM-identified concepts from natural language
+
+All concepts go through a three-tier normalization pipeline:
+1. **String normalization** (case, punctuation)
+2. **Alias resolution** (concept_aliases table)
+3. **Embedding similarity** (deduplicate near-matches)
+
+See `src/api/lib/concept-pipeline.ts:resolveConcept` for the full implementation.
+
+### Probe Scheduling
+
+The `observe` tool uses information-theoretic selection to choose which concept to probe:
+1. Compute **Fisher information** for each candidate (measures assessment value)
+2. Calculate **urgency** score (combines uncertainty, staleness, and novelty)
+3. Apply **prerequisite inconsistency detection** (boost prerequisites that may have been missed)
+4. Apply **codebase scoping** (boost concepts in enrolled codebases)
+5. Rank by `urgency * fisherInfo` with conversational relevance weighting
+
+See `src/core/probe-selection.ts:selectProbeCandidate` and `src/api/routes/mcp.ts:104-414`.
+
+### Mastery Model
+
+Entendi uses a hybrid Bayesian model:
+- **IRT (Item Response Theory)** via Graded Response Model (GRM)
+- **FSRS (Free Spaced Repetition Scheduler)** for memory decay
+- **Counterfactual tracking** to isolate tutor effects
+
+Mastery is represented as `P(mastery) = 1 / (1 + exp(-mu))` where `mu` is the IRT ability parameter.
+
+### Tutor Sessions
+
+Tutor sessions follow a 4-phase protocol:
+1. **Phase 1**: Diagnostic assessment (scored)
+2. **Phase 2**: Guided teaching
+3. **Phase 3**: Misconception correction
+4. **Phase 4**: Final assessment (scored)
+
+Only phases 1 and 4 update mastery estimates.
+
+## Rate Limiting
+
+Org-configurable rate limits protect against probe spam:
+- **probeIntervalSeconds**: minimum time between probes
+- **maxProbesPerHour**: maximum probes per session
+- **probeEvalsPerConcept**: evaluations per concept per window
+- **probeEvalWindowHours**: evaluation rate limit window
+
+See `src/api/lib/org-rate-limits.ts` for implementation.
+
+## Response Integrity
+
+For probe and tutor evaluations, Entendi analyzes response integrity to detect copy-pasted or AI-generated answers:
+- **Typing speed** (chars/second vs baseline)
+- **Formatting complexity** (markdown, code blocks)
+- **Vocabulary complexity** (unique words, avg word length)
+- **Length deviation** (word/char count vs baseline)
+
+Suspicious responses trigger **dampening** — the mastery update is scaled by the integrity score.
+
+See `src/core/response-integrity.ts` for the full scoring algorithm.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Observe Tool" icon="eye" href="/api/mcp/observe">
+    Learn how concept observation and probe scheduling works
+  </Card>
+  <Card title="Record Evaluation" icon="clipboard-check" href="/api/mcp/record-evaluation">
+    Understand how evaluations update mastery
+  </Card>
+</CardGroup>

@@ -1,0 +1,385 @@
+---
+title: Organizations
+description: Manage team learning with role-based access and aggregate analytics
+---
+
+## Overview
+
+Organizations enable teams to:
+
+- Track member mastery across shared codebases
+- Set enforcement policies for comprehension checks
+- View aggregate learning analytics
+- Manage role-based permissions
+- Monitor integrity trends
+
+## Creating an Organization
+
+From the dashboard:
+
+1. Navigate to Organization tab
+2. Click "Create Organization"
+3. Provide organization name
+4. You're assigned the **owner** role
+
+## Member Roles
+
+### Built-in Roles
+
+From `src/api/lib/auth.ts:10-38`:
+
+#### Owner
+- Full administrative access
+- Can transfer ownership
+- Cannot be removed (must transfer ownership first)
+- All admin permissions
+
+#### Admin
+- Manage members and roles
+- Configure organization settings
+- View all member data
+- Create/edit/delete codebases and syllabi
+- Annotate assessment events
+
+**Admin Permissions**:
+```
+codebases.create
+codebases.edit
+codebases.delete
+codebases.view_progress
+syllabi.create
+syllabi.edit
+syllabi.delete
+syllabi.view_progress
+members.invite
+members.manage_roles
+members.view
+org.settings
+```
+
+#### Member
+- View other members
+- Access own learning data
+- Participate in org codebases/syllabi
+
+**Member Permissions**:
+```
+members.view
+```
+
+### Custom Roles
+
+Owners and admins can create custom roles with granular permissions. See the Roles API documentation for details.
+
+## Inviting Members
+
+From `src/api/lib/auth.ts:138-149`:
+
+1. Navigate to Organization → Members
+2. Click "Invite Member"
+3. Enter email address and select role
+4. Invitation email sent with accept link
+5. If user signs up after invitation, they're automatically added
+
+**Auto-Accept Flow** (from `src/api/lib/auth.ts:101-124`):
+- Pending invitations checked on user creation
+- Matching email automatically accepts
+- User added to org with invited role
+
+## Member Management
+
+### Viewing Members
+
+**GET /api/org/members** returns:
+
+```json
+[
+  {
+    "userId": "user_123",
+    "name": "Alice",
+    "email": "alice@example.com",
+    "role": "member",
+    "mastery": {
+      "totalAssessed": 47,
+      "mastered": 32,
+      "avgMastery": 0.78
+    }
+  }
+]
+```
+
+Mastery threshold: **0.7** (70% probability)
+
+### Member Details
+
+**GET /api/org/members/:userId** shows:
+
+- Full concept list with mastery scores
+- Uncertainty metrics (mu, sigma)
+- Assessment counts
+- Last assessed timestamps
+
+### Member History
+
+**GET /api/org/members/:userId/history** provides:
+
+- Recent 20 assessment events
+- Dismissal events (busy, topic_change, claimed_expertise)
+- Interleaved and sorted by date
+- Includes probe responses and integrity scores
+
+## Analytics
+
+### Overview
+
+**GET /api/org/analytics** returns:
+
+```json
+{
+  "memberCount": 12,
+  "totalAssessments": 1847,
+  "conceptCoverage": [
+    {
+      "conceptId": "react/hooks",
+      "assessedBy": 8,
+      "avgMastery": 0.82
+    }
+  ]
+}
+```
+
+**Concept Coverage**: Top 20 concepts by number of members assessed, showing which topics are well-distributed vs. knowledge silos.
+
+### Rankings
+
+**GET /api/org/rankings** shows:
+
+- Sorted by mastered count (descending)
+- Then by average mastery (descending)
+- Includes assessment counts
+
+Use for:
+- Identifying top performers
+- Finding members who need support
+- Gamification leaderboards
+
+## Enforcement Levels
+
+From `src/api/routes/org.ts:308-362`:
+
+Control how Entendi handles probe deferrals:
+
+### Off
+- No probes triggered
+- Observation-only mode
+- Useful for initial rollout
+
+### Remind (Default)
+- Probes shown as suggestions
+- Users can dismiss without penalty
+- Mastery tracking active
+
+### Enforce
+- Probes must be answered
+- Deferrals logged for admin review
+- Repeated deferrals flagged
+
+### Configuration
+
+**PUT /api/org/enforcement** (owner/admin only):
+
+```json
+{
+  "enforcementLevel": "remind"
+}
+```
+
+Levels stored in `organization.metadata` as JSON.
+
+## Organization Settings
+
+### Rate Limits
+
+**PUT /api/org/settings/rate-limits** (owner/admin only):
+
+```json
+{
+  "probeEvalsPerConcept": 1,
+  "probeEvalWindowHours": 24,
+  "probeIntervalSeconds": 120,
+  "maxProbesPerHour": 15
+}
+```
+
+From `src/api/routes/org.ts:366-466`:
+
+- **probeEvalsPerConcept**: Max assessments per concept in window (default: 1)
+- **probeEvalWindowHours**: Rolling window for rate limit (default: 24)
+- **probeIntervalSeconds**: Minimum time between probes (default: 120)
+- **maxProbesPerHour**: Session limit (default: 15)
+
+Set all to **0** to disable rate limiting (sets `rateLimitExempt: true`).
+
+### Integrity Settings
+
+**PUT /api/org/settings/integrity** (owner/admin only):
+
+```json
+{
+  "charsPerSecondThreshold": 15,
+  "formattingScoreThreshold": 3,
+  "wordCountThreshold": 150,
+  "styleDriftWordCountRatio": 3.0,
+  "styleDriftCharsPerSecRatio": 2.5,
+  "styleDriftFormattingDiff": 3,
+  "dampeningThreshold": 0.5,
+  "emaAlpha": 0.3
+}
+```
+
+From `src/api/routes/org.ts:373-507`:
+
+- **charsPerSecondThreshold**: Typing speed above this flags response (default: 15)
+- **formattingScoreThreshold**: Markdown/code block count threshold (default: 3)
+- **wordCountThreshold**: Max words before flagging (default: 150)
+- **styleDriftWordCountRatio**: Multiplier for baseline comparison (default: 3)
+- **styleDriftCharsPerSecRatio**: Speed ratio threshold (default: 2.5)
+- **styleDriftFormattingDiff**: Formatting difference threshold (default: 3)
+- **dampeningThreshold**: Integrity score below this triggers dampening (default: 0.5)
+- **emaAlpha**: Exponential moving average weight for baseline (default: 0.3)
+
+## Integrity Monitoring
+
+### Organization-Wide
+
+**GET /api/org/integrity** returns:
+
+```json
+{
+  "totalWithIntegrity": 1203,
+  "avgScore": 0.87,
+  "flaggedCount": 34,
+  "flaggedMemberCount": 3
+}
+```
+
+Use this to:
+- Identify widespread integrity issues
+- Adjust thresholds if false positives are high
+- Monitor trends over time
+
+### Flagged Events
+
+**GET /api/org/integrity/flagged?page=1&limit=20** shows:
+
+- Events below dampening threshold
+- Includes user info, concept, integrity score
+- Response features (typing speed, word count, formatting)
+- Paginated results
+
+Admins can review and annotate suspicious responses.
+
+### Per-Member Integrity
+
+**GET /api/org/members/:userId/integrity** returns:
+
+```json
+{
+  "avgIntegrityScore": 0.91,
+  "flaggedCount": 2,
+  "totalAssessed": 76,
+  "flaggedEvents": [ /* recent flagged assessments */ ]
+}
+```
+
+## Event Annotations
+
+From `src/api/routes/org.ts:674-733`:
+
+Admins can add notes to assessment events:
+
+**POST /api/org/events/:eventId/annotations**:
+
+```json
+{
+  "text": "Discussed with user, legitimate response but unusual phrasing"
+}
+```
+
+Annotations visible to all org admins. Use for:
+- Documenting integrity investigations
+- Providing feedback on flagged events
+- Tracking false positives
+
+Delete your own annotations:
+
+**DELETE /api/org/annotations/:annotationId**
+
+## Dismissal Tracking
+
+From `src/api/routes/org.ts:735-868`:
+
+### Viewing Dismissals
+
+**GET /api/org/dismissals?reason=busy&userId=user_123**:
+
+- Filter by reason: `topic_change`, `busy`, `claimed_expertise`
+- Filter by user or concept
+- Paginated results
+
+### Dismissal Statistics
+
+**GET /api/org/dismissals/stats** returns:
+
+```json
+{
+  "totalDismissals": 234,
+  "byReason": {
+    "topic_change": 98,
+    "busy": 112,
+    "claimed_expertise": 24
+  },
+  "topDismissers": [
+    {"userId": "user_456", "userName": "Bob", "count": 45}
+  ],
+  "repeatBusyDeferrals": [
+    {"userId": "user_789", "conceptId": "sql/joins", "count": 5}
+  ]
+}
+```
+
+Use **repeatBusyDeferrals** to identify:
+- Concepts that need better prerequisites
+- Users avoiding specific topics
+- Gaps in understanding vs. time constraints
+
+## Best Practices
+
+### Onboarding
+
+1. Start with **Remind** enforcement
+2. Set generous rate limits initially
+3. Monitor dismissal patterns
+4. Adjust thresholds based on feedback
+5. Move to **Enforce** after team adoption
+
+### Integrity Tuning
+
+- Review flagged events weekly
+- Adjust thresholds if false positive rate > 10%
+- Consider team writing styles (technical vs. concise)
+- Use annotations to document edge cases
+
+### Member Privacy
+
+- Communicate what admins can see
+- Use aggregate analytics for team decisions
+- Individual data for coaching only
+- Set clear expectations on monitoring
+
+### Scaling
+
+- Create custom roles for large teams
+- Use codebase enrollment for project-based tracking
+- Leverage syllabi for structured onboarding
+- Export data via API for custom dashboards

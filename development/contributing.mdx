@@ -1,0 +1,465 @@
+---
+title: Contributing
+description: Guidelines for contributing to Entendi
+---
+
+## Getting Started
+
+Before contributing:
+
+1. Read the [Developer Setup](/development/setup) guide
+2. Review the [Architecture](/development/architecture) documentation
+3. Check existing [GitHub Issues](https://github.com/LemonThyme/entendi/issues)
+4. Join discussions in the [GitHub Discussions](https://github.com/LemonThyme/entendi/discussions)
+
+## Workflow
+
+### 1. Fork and Clone
+
+Fork the repository on GitHub, then clone your fork:
+
+```bash
+git clone https://github.com/YOUR_USERNAME/entendi.git
+cd entendi
+git remote add upstream https://github.com/LemonThyme/entendi.git
+```
+
+### 2. Create a Branch
+
+Create a feature branch from `main`:
+
+```bash
+git checkout -b feat/your-feature-name
+```
+
+Branch naming conventions:
+- `feat/` — new features
+- `fix/` — bug fixes
+- `docs/` — documentation updates
+- `refactor/` — code refactoring
+- `test/` — test additions/updates
+- `chore/` — maintenance tasks
+
+### 3. Make Changes
+
+Make your changes following the [Code Style](#code-style) guidelines.
+
+Run tests frequently:
+
+```bash
+npm test
+```
+
+Lint your code:
+
+```bash
+npm run lint:fix
+```
+
+### 4. Commit Your Changes
+
+Commits **MUST** use [Conventional Commits](https://www.conventionalcommits.org/) format.
+
+The git hook installed by `setup.sh` enforces this automatically.
+
+#### Commit Format
+
+```
+<type>[optional scope]: <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+**Examples:**
+
+```bash
+feat: add probe dismissal button to dashboard
+fix(auth): handle expired session tokens correctly
+docs: update architecture diagram
+refactor(mcp): extract common API client logic
+test: add coverage for Socratic tutor phase transitions
+chore: upgrade dependencies
+```
+
+#### Commit Types
+
+| Type | When to Use | Version Bump |
+|------|-------------|---------------|
+| `feat:` | New feature or capability | minor (0.1.0 → 0.2.0) |
+| `fix:` | Bug fix | patch (0.1.0 → 0.1.1) |
+| `perf:` | Performance improvement | patch |
+| `docs:` | Documentation only | none (hidden from changelog) |
+| `test:` | Adding/updating tests | none (hidden) |
+| `chore:` | Maintenance, deps, config | none (hidden) |
+| `ci:` | CI/CD changes | none (hidden) |
+| `refactor:` | Code change that neither fixes a bug nor adds a feature | none (hidden) |
+| `feat!:` | Breaking change | minor (capped while pre-1.0) |
+
+#### Commit Rules
+
+1. **Prefix is mandatory** — the git hook will reject commits without a valid prefix
+2. **Use lowercase** for the prefix: `feat:` not `Feat:`
+3. **Add a space** after the colon: `feat: description` not `feat:description`
+4. **Use imperative mood** — "add" not "added", "fix" not "fixed"
+5. **Keep subject line under 72 characters**
+6. **Scope is optional but encouraged** — `fix(auth):` provides context
+7. **Breaking changes** — use `!` suffix: `feat!:` or add `BREAKING CHANGE:` footer
+
+**Good commits:**
+```bash
+feat: add ZPD frontier visualization to dashboard
+fix(mcp): prevent duplicate observations for same concept
+docs(setup): clarify Node.js version requirement
+refactor: extract mastery model into separate module
+```
+
+**Bad commits:**
+```bash
+Added new feature        # Missing type prefix, wrong mood
+feat:update UI          # Missing space after colon
+FEAT: new button        # Uppercase prefix
+fixed the bug           # Missing prefix
+feat: This is a very long commit message that exceeds the maximum recommended length of seventy-two characters  # Too long
+```
+
+#### If Commit Hook Blocks Your Commit
+
+The hook validates commit message format and will reject invalid commits:
+
+```
+❌ Commit message must follow Conventional Commits format
+   Examples:
+     feat: add new feature
+     fix: resolve bug in login
+     docs: update README
+```
+
+Fix your commit message:
+
+```bash
+git commit --amend -m "feat: your properly formatted message"
+```
+
+### 5. Push and Create PR
+
+Push your branch:
+
+```bash
+git push origin feat/your-feature-name
+```
+
+Create a Pull Request on GitHub.
+
+#### PR Guidelines
+
+- **Title:** Use Conventional Commits format (same as commit messages)
+- **Description:** 
+  - Explain the problem you're solving
+  - Describe your solution
+  - Link related issues with `Fixes #123` or `Closes #123`
+  - Include screenshots for UI changes
+  - List any breaking changes
+- **Keep PRs focused** — one feature/fix per PR
+- **Update documentation** if adding features or changing behavior
+- **Add tests** for new functionality
+
+**PR Template:**
+
+```markdown
+## Summary
+
+Brief description of changes.
+
+## Changes
+
+- Added X
+- Fixed Y
+- Updated Z
+
+## Related Issues
+
+Fixes #123
+
+## Testing
+
+- [ ] Unit tests added/updated
+- [ ] Manual testing completed
+- [ ] Documentation updated
+
+## Screenshots (if applicable)
+
+[Add screenshots]
+```
+
+## Code Style
+
+### Linting
+
+We use [Biome](https://biomejs.dev/) for linting and formatting.
+
+Run before committing:
+
+```bash
+npm run lint:fix
+```
+
+Configuration: `biome.json`
+
+### TypeScript
+
+- Use strict mode (`strict: true` in `tsconfig.json`)
+- Avoid `any` — use `unknown` or proper types
+- Prefer `interface` for object shapes
+- Use `type` for unions, intersections, and mapped types
+
+**Good:**
+```typescript
+interface User {
+  id: string;
+  name: string;
+  email: string;
+}
+
+type UserRole = 'admin' | 'member' | 'viewer';
+```
+
+**Bad:**
+```typescript
+const user: any = { ... };  // Use proper type
+type User = {               // Use interface for objects
+  id: string;
+};
+```
+
+### Naming Conventions
+
+- **Files:** `kebab-case.ts`
+- **Variables/Functions:** `camelCase`
+- **Types/Interfaces:** `PascalCase`
+- **Constants:** `UPPER_SNAKE_CASE`
+- **Private fields:** prefix with `_` or use `#` syntax
+
+```typescript
+// Good
+const userName = 'Alice';
+interface UserProfile { ... }
+const MAX_RETRIES = 3;
+
+class MasteryTracker {
+  #privateState: State;
+  
+  calculateMastery(): number { ... }
+}
+```
+
+### Function Style
+
+- Prefer `const` arrow functions for utilities
+- Use function declarations for top-level exported functions
+- Keep functions small and focused
+- Use descriptive names
+
+```typescript
+// Exported function
+export function calculateMasteryScore(observations: Observation[]): number {
+  return observations.reduce((sum, obs) => sum + obs.score, 0) / observations.length;
+}
+
+// Utility arrow function
+const formatTimestamp = (date: Date): string => {
+  return date.toISOString();
+};
+```
+
+### Error Handling
+
+- Use custom error classes for domain errors
+- Always handle promises with `.catch()` or `try/catch`
+- Log errors with context
+
+```typescript
+class AuthenticationError extends Error {
+  constructor(message: string, public readonly code: string) {
+    super(message);
+    this.name = 'AuthenticationError';
+  }
+}
+
+try {
+  await authenticateUser(apiKey);
+} catch (error) {
+  if (error instanceof AuthenticationError) {
+    console.error('Auth failed:', error.code, error.message);
+  }
+  throw error;
+}
+```
+
+### Comments
+
+- Write self-documenting code (good names > comments)
+- Use comments for **why**, not **what**
+- Add JSDoc for public APIs
+
+```typescript
+/**
+ * Calculates the next probe time using spaced repetition.
+ * 
+ * @param mastery - Current mastery level (0-1)
+ * @param attempts - Number of previous probe attempts
+ * @returns Unix timestamp for next probe
+ */
+export function scheduleNextProbe(mastery: number, attempts: number): number {
+  // Exponential backoff with mastery multiplier
+  // Higher mastery → longer delays between probes
+  const baseDelay = 86400; // 1 day in seconds
+  const multiplier = Math.pow(2, attempts) * (1 + mastery);
+  return Date.now() + baseDelay * multiplier * 1000;
+}
+```
+
+## Testing
+
+### Writing Tests
+
+We use [Vitest](https://vitest.dev/) for testing.
+
+Test files: `*.test.ts` alongside source files.
+
+```typescript
+import { describe, it, expect } from 'vitest';
+import { calculateMasteryScore } from './mastery';
+
+describe('calculateMasteryScore', () => {
+  it('returns average of observation scores', () => {
+    const observations = [
+      { score: 0.8 },
+      { score: 0.6 },
+      { score: 0.9 },
+    ];
+    
+    expect(calculateMasteryScore(observations)).toBeCloseTo(0.77, 2);
+  });
+  
+  it('returns 0 for empty observations', () => {
+    expect(calculateMasteryScore([])).toBe(0);
+  });
+});
+```
+
+### Test Coverage
+
+- Aim for >80% coverage on new code
+- Test edge cases and error paths
+- Don't test implementation details
+
+### Running Tests
+
+```bash
+# Run all tests
+npm test
+
+# Watch mode
+npm run test:watch
+
+# With coverage
+npm test -- --coverage
+```
+
+## Documentation
+
+### When to Update Docs
+
+- Adding new features
+- Changing public APIs
+- Modifying setup/installation steps
+- Adding new environment variables
+- Changing architecture
+
+### Documentation Style
+
+- Use clear, concise language
+- Include code examples
+- Add command outputs where helpful
+- Use tables for structured data
+- Link to related documentation
+
+## Review Process
+
+### What We Look For
+
+1. **Correctness** — does it solve the problem?
+2. **Tests** — is it well-tested?
+3. **Code quality** — is it readable and maintainable?
+4. **Documentation** — are docs updated?
+5. **Breaking changes** — are they necessary and documented?
+6. **Performance** — does it introduce regressions?
+
+### Responding to Reviews
+
+- Be responsive to feedback
+- Ask questions if unclear
+- Make requested changes or explain why you disagree
+- Push new commits (don't force-push during review)
+- Resolve conversations after addressing them
+
+### Getting Your PR Merged
+
+Maintainers will merge once:
+
+- All review feedback is addressed
+- Tests pass
+- Documentation is updated
+- At least one maintainer approves
+
+## Release Process
+
+Releases are automated with [release-please](https://github.com/googleapis/release-please).
+
+1. Merge PRs with Conventional Commits
+2. release-please creates a release PR automatically
+3. Maintainer merges release PR
+4. GitHub Action publishes to npm and creates GitHub release
+
+Version bumps are determined by commit types:
+- `feat:` → minor version (0.1.0 → 0.2.0)
+- `fix:`, `perf:` → patch version (0.1.0 → 0.1.1)
+- `feat!:` → minor while pre-1.0, major after 1.0
+
+## Parallel Work (Agent Teams)
+
+When working on large features, you can use Claude Code Agent Teams:
+
+```
+You: "Let's do parallel work on this feature"
+```
+
+Claude will:
+1. Create teammates with distinct file ownership
+2. Assign clear tasks from the implementation plan
+3. Ensure no file conflicts between teammates
+4. Have each teammate commit after completing tasks
+
+Typical structure: 3-4 teammates split by layer (API, dashboard, tests, infra).
+
+## Getting Help
+
+- **Questions?** Open a [GitHub Discussion](https://github.com/LemonThyme/entendi/discussions)
+- **Bug reports:** [Create an issue](https://github.com/LemonThyme/entendi/issues/new)
+- **Feature requests:** [Create an issue](https://github.com/LemonThyme/entendi/issues/new)
+- **Stuck?** Comment on your PR and tag maintainers
+
+## Code of Conduct
+
+Be respectful and constructive. We're all here to build something useful.
+
+- Be welcoming to new contributors
+- Focus on the code, not the person
+- Accept constructive criticism gracefully
+- Assume good intent
+
+## License
+
+By contributing, you agree that your contributions will be licensed under the MIT License.

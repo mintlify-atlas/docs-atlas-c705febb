@@ -1,0 +1,223 @@
+---
+title: Bayesian Mastery Tracking
+description: How Entendi measures and updates your understanding over time
+icon: chart-line
+---
+
+Entendi uses a probabilistic model to estimate your mastery of each concept. Unlike pass/fail tests, this system captures **uncertainty** and **memory decay**—giving you a realistic picture of what you actually understand.
+
+## The Mastery Estimate
+
+Your mastery of each concept is represented as a probability distribution:
+
+<Card title="Mastery State" icon="brain">
+  - **μ (mu)**: Your most likely mastery level (higher = better understanding)
+  - **σ (sigma)**: Uncertainty in that estimate (lower = more confident)
+</Card>
+
+When you first encounter a concept, your mastery starts at μ = 0, σ = 1.5 (high uncertainty). As you answer probes, the model narrows in on your true understanding.
+
+## How Mastery Updates Work
+
+Every time you respond to a [probe](/features/probe-system), Entendi evaluates your answer on a 0-3 rubric:
+
+<Steps>
+  <Step title="0 — No understanding">
+    Wrong answer, irrelevant response, or "I don't know"
+  </Step>
+  <Step title="1 — Surface/partial">
+    Vague awareness but can't explain the concept correctly
+  </Step>
+  <Step title="2 — Functional">
+    Correct and coherent explanation appropriate for the question depth
+  </Step>
+  <Step title="3 — Deep/transferable">
+    Demonstrates insight beyond what was asked—identifies trade-offs, edge cases, or connections
+  </Step>
+</Steps>
+
+Your score is then used to update your mastery estimate using a **Graded Response Model (GRM)**—a Bayesian algorithm from psychometrics.
+
+## The Math (Simplified)
+
+Entendi uses two complementary models:
+
+### Graded Response Model (GRM)
+
+The GRM is an Item Response Theory model that handles ordinal rubric scores (0, 1, 2, 3). It:
+
+1. Computes the probability you'd get each score given your current mastery
+2. Uses your actual score to update your mastery via Bayesian inference
+3. Adjusts uncertainty based on how informative your response was
+
+<Note>
+The GRM accounts for **item difficulty**—some concepts are inherently harder than others. Your mastery is measured on a latent scale that's comparable across concepts.
+</Note>
+
+### FSRS Memory Model
+
+Inspired by the [FSRS-4.5 algorithm](https://github.com/open-spaced-repetition/fsrs4anki), Entendi tracks:
+
+- **Stability (S)**: How long you can remember this concept (in days)
+- **Difficulty (D)**: How hard this concept is for you personally
+- **Retrievability (R)**: Probability you can recall this right now
+
+Each time you answer a probe:
+
+1. Your **stability** increases if you scored 2+ (successful recall)
+2. Your **difficulty** adjusts based on whether you found it easy (score 3) or hard (score 2)
+3. **Retrievability** decays over time using a power-law forgetting curve
+
+<CodeGroup>
+```typescript Memory Decay Formula
+// Retrievability at time t (days) with stability S
+R(t, S) = (1 + 0.234 * t / S) ^ (-0.5)
+
+// Example: S=10 days, t=5 days → R ≈ 0.83 (83% recall)
+```
+</CodeGroup>
+
+## Memory Decay & Forgetting
+
+Unlike static test scores, your mastery estimate **decays over time** if you don't use a concept:
+
+<Steps>
+  <Step title="Initial assessment">
+    You answer a probe on `redis-caching` and score 3/3. Your mastery: μ=1.2, stability=15 days.
+  </Step>
+  
+  <Step title="20 days later">
+    Retrievability drops to ~0.6. Your prior belief "decays" back toward uncertainty:
+    ```
+    μ_decayed = 0.6 * 1.2 + 0.4 * 0.0 = 0.72
+    σ_decayed = 0.6 * 0.5 + 0.4 * 1.5 = 0.9
+    ```
+  </Step>
+  
+  <Step title="Next encounter">
+    When you use Redis again, Entendi re-probes to see if you still remember. Your answer updates the decayed estimate.
+  </Step>
+</Steps>
+
+This means you can "forget" concepts you once mastered if you don't practice them—just like real memory.
+
+## Mastery Probability
+
+The raw μ value is converted to a mastery probability using a logistic function:
+
+<CodeGroup>
+```typescript Mastery Probability
+function pMastery(mu: number): number {
+  return 1 / (1 + Math.exp(-mu));
+}
+
+// Examples:
+// μ = 0.0  → 50% mastery (coin flip)
+// μ = 1.5  → 82% mastery (solid understanding)
+// μ = -1.5 → 18% mastery (struggling)
+```
+</CodeGroup>
+
+This is the number you see in the Entendi dashboard and API.
+
+## How Stability Increases
+
+After a successful response (score 2-3), your stability grows based on:
+
+- Current stability S
+- Difficulty D
+- Retrievability R at the time of review
+- Grade (2=hard, 3=good, 4=easy)
+
+<Info>
+The formula ensures that **reviewing at low retrievability** (i.e., just before you forget) produces the biggest stability gains. This is the [spacing effect](https://en.wikipedia.org/wiki/Spacing_effect) in action.
+</Info>
+
+## Anti-Gaming Rules
+
+The evaluation model is designed to resist superficial answers:
+
+- Ignores meta-commentary like "I understand this deeply" or "this is straightforward"
+- Confident tone with no specifics → score 0-1, not 2-3
+- Score 2+ requires specific mechanics, trade-offs, or failure modes
+- A terse, specific answer scores higher than a verbose, vague one
+
+<Warning>
+You can't game the system by writing longer answers. Entendi evaluates **conceptual substance**, not word count.
+</Warning>
+
+## Example Update Flow
+
+<Steps>
+  <Step title="Initial state">
+    You've never been assessed on `async-programming`:
+    ```
+    μ = 0.0, σ = 1.5
+    pMastery = 50%
+    ```
+  </Step>
+  
+  <Step title="First probe (depth 1)">
+    **Q**: "Why does async/await exist instead of just using callbacks?"
+    
+    **A**: "It makes the code more readable and avoids callback hell."
+    
+    **Score**: 2/3 (functional but doesn't mention error handling or control flow)
+  </Step>
+  
+  <Step title="After update">
+    ```
+    μ = 0.6, σ = 0.8
+    pMastery = 65%
+    S = 5 days, D = 6.0
+    ```
+  </Step>
+  
+  <Step title="Second probe (depth 2)">
+    **Q**: "What happens if an async function throws an error but you don't await it?"
+    
+    **A**: "The error becomes an unhandled promise rejection. You need try/catch around the await, or .catch() on the promise."
+    
+    **Score**: 3/3 (identifies edge case and multiple solutions)
+  </Step>
+  
+  <Step title="After second update">
+    ```
+    μ = 1.4, σ = 0.6
+    pMastery = 80%
+    S = 12 days, D = 5.2
+    ```
+  </Step>
+</Steps>
+
+## When Are You "Proficient"?
+
+Entendi considers you proficient when:
+
+- **pMastery ≥ 0.7** (70% probability)
+- **Retrievability ≥ 0.7** (not forgotten)
+
+If both conditions hold, the concept is classified as [**routine**](/features/concept-detection#novelty-classification) and you won't be probed again unless significant time passes.
+
+## Why Bayesian?
+
+Traditional tests give you a binary pass/fail. Bayesian mastery tracking:
+
+<CardGroup cols={2}>
+  <Card title="Captures uncertainty" icon="question">
+    Knows when it's not sure about your understanding
+  </Card>
+  <Card title="Updates continuously" icon="arrows-rotate">
+    Every response refines the estimate
+  </Card>
+  <Card title="Models forgetting" icon="clock">
+    Realistically accounts for memory decay
+  </Card>
+  <Card title="Personalizes difficulty" icon="user">
+    Some concepts are harder for you than others
+  </Card>
+</CardGroup>
+
+<Tip>
+Your mastery estimate is stored in the [knowledge graph](/features/knowledge-graph) and used to compute your [Zone of Proximal Development](/features/knowledge-graph#zpd-frontier).
+</Tip>

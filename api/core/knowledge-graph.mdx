@@ -1,0 +1,330 @@
+---
+title: Knowledge Graph
+description: Manage concepts, user mastery states, and learning relationships
+---
+
+The `KnowledgeGraph` class manages concepts, user mastery states, prerequisite relationships, and the Zone of Proximal Development.
+
+## Class: KnowledgeGraph
+
+```typescript
+class KnowledgeGraph {
+  constructor(state?: KnowledgeGraphState)
+}
+```
+
+**Example:**
+```typescript
+import { KnowledgeGraph } from 'entendi';
+
+const graph = new KnowledgeGraph();
+```
+
+## Concept Management
+
+### addConcept
+
+Adds a concept node to the graph.
+
+```typescript
+addConcept(concept: ConceptNode): void
+```
+
+**Example:**
+```typescript
+import { KnowledgeGraph, createConceptNode } from 'entendi';
+
+const graph = new KnowledgeGraph();
+
+const concept = createConceptNode({
+  conceptId: 'redis',
+  domain: 'databases',
+  specificity: 'topic',
+  aliases: ['Redis'],
+});
+
+graph.addConcept(concept);
+```
+
+### getConcept
+
+Retrieves a concept by ID.
+
+```typescript
+getConcept(conceptId: string): ConceptNode | undefined
+```
+
+**Example:**
+```typescript
+const redis = graph.getConcept('redis');
+if (redis) {
+  console.log(redis.domain); // 'databases'
+}
+```
+
+### getAllConcepts
+
+Returns all concepts in the graph.
+
+```typescript
+getAllConcepts(): ConceptNode[]
+```
+
+**Example:**
+```typescript
+const allConcepts = graph.getAllConcepts();
+console.log(allConcepts.length);
+```
+
+## User State Management
+
+### getUserConceptState
+
+Retrieves or creates a user's mastery state for a concept.
+
+```typescript
+getUserConceptState(userId: string, conceptId: string): UserConceptState
+```
+
+**Returns:** `UserConceptState` with mastery, memory, assessment history
+
+**Example:**
+```typescript
+const state = graph.getUserConceptState('user123', 'redis');
+console.log(state.mastery.mu); // 0.0 (initial)
+console.log(state.assessmentCount); // 0
+```
+
+### setUserConceptState
+
+Updates a user's concept state. Automatically caps assessment history at 50 events.
+
+```typescript
+setUserConceptState(
+  userId: string,
+  conceptId: string,
+  ucs: UserConceptState
+): void
+```
+
+**Example:**
+```typescript
+const state = graph.getUserConceptState('user123', 'redis');
+state.mastery.mu = 1.5;
+state.assessmentCount = 3;
+graph.setUserConceptState('user123', 'redis', state);
+```
+
+## Novelty Classification
+
+### classifyNovelty
+
+Classifies how novel a concept is for a user based on mastery and memory.
+
+```typescript
+classifyNovelty(userId: string, conceptId: string): NoveltyLevel
+```
+
+**Returns:** One of:
+- `'critical'` — Security domain concepts (always critical)
+- `'routine'` — High mastery (P > 0.8) and good retention (R > 0.7)
+- `'adjacent'` — Moderate mastery (P > 0.3)
+- `'novel'` — Low or no mastery
+
+**Example:**
+```typescript
+import { KnowledgeGraph, createConceptNode } from 'entendi';
+
+const graph = new KnowledgeGraph();
+
+// Security concepts are always critical
+const sqlInjection = createConceptNode({
+  conceptId: 'sql-injection',
+  domain: 'security',
+  specificity: 'technique',
+});
+graph.addConcept(sqlInjection);
+
+const novelty = graph.classifyNovelty('user123', 'sql-injection');
+console.log(novelty); // 'critical'
+
+// Regular concepts depend on mastery
+const redis = createConceptNode({
+  conceptId: 'redis',
+  domain: 'databases',
+  specificity: 'topic',
+});
+graph.addConcept(redis);
+
+const state = graph.getUserConceptState('user123', 'redis');
+state.mastery.mu = 3.0; // High mastery
+state.lastAssessed = new Date().toISOString();
+state.memory.stability = 30;
+graph.setUserConceptState('user123', 'redis', state);
+
+console.log(graph.classifyNovelty('user123', 'redis')); // 'routine'
+```
+
+## Zone of Proximal Development
+
+### getZPDFrontier
+
+Computes the ZPD frontier: concepts where prerequisites are mastered but the concept itself is not.
+
+```typescript
+getZPDFrontier(userId: string, options?: {
+  threshold?: number;
+  limit?: number;
+  includeUnassessed?: boolean;
+}): string[]
+```
+
+**Parameters:**
+- `threshold` — mastery threshold (default: 0.7)
+- `limit` — max concepts to return (default: 20)
+- `includeUnassessed` — include concepts never assessed (default: false)
+
+**Returns:** Array of concept IDs sorted by Fisher information (most informative first)
+
+**Example:**
+```typescript
+import { KnowledgeGraph, createConceptNode } from 'entendi';
+
+const graph = new KnowledgeGraph();
+
+// Add a prerequisite concept
+const basics = createConceptNode({
+  conceptId: 'javascript-basics',
+  domain: 'languages',
+  specificity: 'topic',
+});
+graph.addConcept(basics);
+
+// Add an advanced concept that requires the prerequisite
+const advanced = createConceptNode({
+  conceptId: 'javascript-closures',
+  domain: 'languages',
+  specificity: 'technique',
+  relationships: [
+    { target: 'javascript-basics', type: 'requires' }
+  ],
+});
+graph.addConcept(advanced);
+
+// Master the prerequisite
+const prereqState = graph.getUserConceptState('user123', 'javascript-basics');
+prereqState.mastery.mu = 2.0; // P(mastery) ~ 0.88
+graph.setUserConceptState('user123', 'javascript-basics', prereqState);
+
+// Get ZPD frontier
+const frontier = graph.getZPDFrontier('user123', {
+  includeUnassessed: true
+});
+
+console.log(frontier); // ['javascript-closures']
+// 'javascript-basics' is excluded (already mastered)
+// 'javascript-closures' is included (prereq met, not mastered)
+```
+
+## Serialization
+
+### toJSON
+
+Serializes the graph to JSON.
+
+```typescript
+toJSON(): string
+```
+
+**Example:**
+```typescript
+const json = graph.toJSON();
+```
+
+### fromJSON
+
+Deserializes a graph from JSON.
+
+```typescript
+static fromJSON(json: string): KnowledgeGraph
+```
+
+**Example:**
+```typescript
+const graph = KnowledgeGraph.fromJSON(json);
+```
+
+### getState
+
+Returns the internal state object.
+
+```typescript
+getState(): KnowledgeGraphState
+```
+
+**Example:**
+```typescript
+const state = graph.getState();
+console.log(state.concepts);
+console.log(state.userStates);
+```
+
+## Types
+
+### ConceptNode
+
+```typescript
+interface ConceptNode {
+  conceptId: string;
+  aliases: string[];
+  domain: string;
+  specificity: 'domain' | 'topic' | 'technique';
+  parentConcept: string | null;
+  itemParams: GRMItemParams;
+  relationships: ConceptEdge[];
+  lifecycle: 'discovered' | 'candidate' | 'normalized' | 'validated' | 'stable' | 'deprecated';
+  populationStats: PopulationStats;
+}
+```
+
+### ConceptEdge
+
+```typescript
+interface ConceptEdge {
+  target: string;
+  type: 'requires' | 'part_of' | 'related_to' | 'alternative_to' | 'used_with' | 'is_example_of';
+}
+```
+
+### UserConceptState
+
+```typescript
+interface UserConceptState {
+  conceptId: string;
+  userId: string;
+  mastery: MasteryState;
+  memory: MemoryState;
+  lastAssessed: string | null;
+  assessmentCount: number;
+  history: AssessmentEvent[];
+  tutoredAssessmentCount: number;
+  untutoredAssessmentCount: number;
+  muUntutored: number;
+  sigmaUntutored: number;
+}
+```
+
+### NoveltyLevel
+
+```typescript
+type NoveltyLevel = 'routine' | 'adjacent' | 'novel' | 'critical'
+```
+
+### KnowledgeGraphState
+
+```typescript
+interface KnowledgeGraphState {
+  concepts: Record<string, ConceptNode>;
+  userStates: Record<string, UserConceptState>;
+}
+```

@@ -1,0 +1,535 @@
+---
+title: Concepts
+description: Manage concepts, search the knowledge graph, and create concept relationships
+---
+
+## Overview
+
+The Concepts API manages the knowledge graph of learnable concepts. Concepts represent discrete knowledge units that can be:
+
+- Searched by domain or keyword
+- Created individually or in batches
+- Updated with metadata (domain, specificity, aliases)
+- Linked with prerequisite/hierarchical relationships
+
+**Base path**: `/api/concepts`
+
+**Source**: `src/api/routes/concepts.ts`
+
+## Concept Model
+
+Concepts use normalized identifiers (lowercase, hyphen-separated) and track:
+
+- **Domain**: Broader category (e.g., "react", "typescript", "algorithms")
+- **Specificity**: Level of granularity ("domain", "topic", "technique")
+- **Aliases**: Alternative names for search/matching
+- **Relationships**: Graph edges (requires, part_of, related_to, etc.)
+
+**Source**: `src/schemas/types.ts:37-44`
+
+## Endpoints
+
+### List Concepts
+
+Retrieve all concepts with optional filtering by domain or search query.
+
+<CodeGroup>
+```bash cURL (all)
+curl https://api.entendi.dev/api/concepts
+```
+
+```bash cURL (filter by domain)
+curl "https://api.entendi.dev/api/concepts?domain=react"
+```
+
+```bash cURL (search)
+curl "https://api.entendi.dev/api/concepts?search=hooks"
+```
+
+```javascript JavaScript
+const response = await fetch(
+  'https://api.entendi.dev/api/concepts?domain=typescript'
+);
+const concepts = await response.json();
+```
+</CodeGroup>
+
+#### Query Parameters
+
+<ParamField query="domain" type="string">
+  Filter by exact domain match (e.g., "react", "nodejs")
+</ParamField>
+
+<ParamField query="search" type="string">
+  Case-insensitive search across concept ID, domain, and aliases
+</ParamField>
+
+#### Response
+
+Returns an array of concept objects:
+
+<ResponseField name="id" type="string">
+  Normalized concept identifier (e.g., "react-hooks")
+</ResponseField>
+
+<ResponseField name="domain" type="string">
+  Domain category
+</ResponseField>
+
+<ResponseField name="specificity" type="string">
+  Granularity level: "domain", "topic", "technique"
+</ResponseField>
+
+<ResponseField name="aliases" type="string[]">
+  Alternative names for search/matching
+</ResponseField>
+
+<ResponseField name="parentId" type="string | null">
+  Parent concept ID (for hierarchical relationships)
+</ResponseField>
+
+<ResponseField name="description" type="string | null">
+  Human-readable description
+</ResponseField>
+
+<ResponseField name="createdAt" type="string">
+  ISO timestamp of creation
+</ResponseField>
+
+<ResponseField name="updatedAt" type="string">
+  ISO timestamp of last update
+</ResponseField>
+
+**Authentication**: Not required for listing (public read access)
+
+**Source**: `src/api/routes/concepts.ts:10-32`
+
+---
+
+### Create or Upsert Concept
+
+Create a new concept or update an existing one. IDs are normalized automatically.
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.entendi.dev/api/concepts \
+  -H "x-api-key: <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "React Hooks",
+    "domain": "react",
+    "specificity": "topic",
+    "aliases": ["hooks", "useState", "useEffect"],
+    "parentId": "react"
+  }'
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.entendi.dev/api/concepts', {
+  method: 'POST',
+  headers: {
+    'x-api-key': '<your-api-key>',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    id: 'React Hooks',
+    domain: 'react',
+    specificity: 'topic',
+    aliases: ['hooks', 'useState', 'useEffect'],
+    parentId: 'react'
+  })
+});
+const concept = await response.json();
+```
+</CodeGroup>
+
+#### Request Body
+
+<ParamField body="id" type="string" required>
+  Concept identifier (will be normalized to lowercase-hyphenated)
+</ParamField>
+
+<ParamField body="domain" type="string">
+  Domain category (default: "general")
+</ParamField>
+
+<ParamField body="specificity" type="string">
+  Granularity: "domain", "topic", "technique" (default: "topic")
+</ParamField>
+
+<ParamField body="aliases" type="string[]">
+  Alternative names for search/matching
+</ParamField>
+
+<ParamField body="parentId" type="string">
+  Parent concept ID for hierarchical relationships
+</ParamField>
+
+#### Response
+
+Returns the created/updated concept object.
+
+**Status codes**:
+- `200 OK` - Concept updated (existing)
+- `201 Created` - New concept created
+- `400 Bad Request` - Missing or invalid `id`
+
+**Normalization**: Input `"React Hooks"` → stored as `"react-hooks"`
+
+**Upsert behavior**: If concept exists, merges aliases and updates metadata (domain/specificity only if provided).
+
+**Authentication**: Required (`requireAuth`)
+
+**Source**: `src/api/routes/concepts.ts:35-77`
+
+---
+
+### Batch Create/Upsert Concepts
+
+Create or update multiple concepts in a single request.
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.entendi.dev/api/concepts/batch \
+  -H "x-api-key: <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "concepts": [
+      {
+        "id": "typescript-generics",
+        "domain": "typescript",
+        "specificity": "technique"
+      },
+      {
+        "id": "typescript-utility-types",
+        "domain": "typescript",
+        "specificity": "technique",
+        "aliases": ["Partial", "Pick", "Omit"]
+      }
+    ]
+  }'
+```
+
+```javascript JavaScript
+const response = await fetch(
+  'https://api.entendi.dev/api/concepts/batch',
+  {
+    method: 'POST',
+    headers: {
+      'x-api-key': '<your-api-key>',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      concepts: [
+        {
+          id: 'typescript-generics',
+          domain: 'typescript',
+          specificity: 'technique'
+        },
+        {
+          id: 'typescript-utility-types',
+          domain: 'typescript',
+          specificity: 'technique',
+          aliases: ['Partial', 'Pick', 'Omit']
+        }
+      ]
+    })
+  }
+);
+const result = await response.json();
+```
+</CodeGroup>
+
+#### Request Body
+
+<ParamField body="concepts" type="array" required>
+  Array of concept objects (same schema as single create)
+</ParamField>
+
+#### Response
+
+<ResponseField name="created" type="number">
+  Number of concepts processed
+</ResponseField>
+
+<ResponseField name="results" type="array">
+  Status for each concept
+  
+  <Expandable title="result object">
+    <ResponseField name="id" type="string">
+      Normalized concept ID
+    </ResponseField>
+    <ResponseField name="status" type="'ok'">
+      Operation status
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Authentication**: Required (`requireAuth`)
+
+**Source**: `src/api/routes/concepts.ts:80-116`
+
+---
+
+### Get Single Concept
+
+Retrieve a concept with all its edges (relationships).
+
+<CodeGroup>
+```bash cURL
+curl https://api.entendi.dev/api/concepts/react-hooks
+```
+
+```javascript JavaScript
+const response = await fetch(
+  'https://api.entendi.dev/api/concepts/react-hooks'
+);
+const concept = await response.json();
+```
+</CodeGroup>
+
+#### Path Parameters
+
+<ParamField path="id" type="string" required>
+  Concept identifier
+</ParamField>
+
+#### Response
+
+Returns the concept object with an additional `edges` field:
+
+<ResponseField name="edges" type="array">
+  Outgoing concept edges
+  
+  <Expandable title="edge object">
+    <ResponseField name="sourceId" type="string">
+      Source concept ID
+    </ResponseField>
+    <ResponseField name="targetId" type="string">
+      Target concept ID
+    </ResponseField>
+    <ResponseField name="edgeType" type="string">
+      Relationship type: "requires", "part_of", "related_to", "alternative_to", "used_with", "is_example_of"
+    </ResponseField>
+    <ResponseField name="createdAt" type="string">
+      ISO timestamp of edge creation
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Status codes**:
+- `200 OK` - Concept found
+- `404 Not Found` - Concept does not exist
+
+**Authentication**: Not required (public read access)
+
+**Source**: `src/api/routes/concepts.ts:119-128`
+
+---
+
+### Update Concept
+
+Update an existing concept's metadata.
+
+<CodeGroup>
+```bash cURL
+curl -X PUT https://api.entendi.dev/api/concepts/react-hooks \
+  -H "x-api-key: <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "domain": "react",
+    "specificity": "topic",
+    "aliases": ["hooks", "useState", "useEffect", "useContext"]
+  }'
+```
+
+```javascript JavaScript
+const response = await fetch(
+  'https://api.entendi.dev/api/concepts/react-hooks',
+  {
+    method: 'PUT',
+    headers: {
+      'x-api-key': '<your-api-key>',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      domain: 'react',
+      specificity: 'topic',
+      aliases: ['hooks', 'useState', 'useEffect', 'useContext']
+    })
+  }
+);
+const updated = await response.json();
+```
+</CodeGroup>
+
+#### Path Parameters
+
+<ParamField path="id" type="string" required>
+  Concept identifier
+</ParamField>
+
+#### Request Body
+
+<ParamField body="domain" type="string">
+  Update domain
+</ParamField>
+
+<ParamField body="specificity" type="string">
+  Update specificity
+</ParamField>
+
+<ParamField body="aliases" type="string[]">
+  Replace aliases (not merged)
+</ParamField>
+
+<ParamField body="parentId" type="string | null">
+  Update parent concept (null to remove)
+</ParamField>
+
+#### Response
+
+Returns the updated concept object.
+
+**Status codes**:
+- `200 OK` - Concept updated
+- `404 Not Found` - Concept does not exist
+
+**Authentication**: Required (`requireAuth`)
+
+**Source**: `src/api/routes/concepts.ts:131-154`
+
+---
+
+### Create Concept Edge
+
+Create a relationship edge between two concepts.
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.entendi.dev/api/concepts/react-hooks/edges \
+  -H "x-api-key: <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "targetId": "javascript-closures",
+    "edgeType": "requires"
+  }'
+```
+
+```javascript JavaScript
+const response = await fetch(
+  'https://api.entendi.dev/api/concepts/react-hooks/edges',
+  {
+    method: 'POST',
+    headers: {
+      'x-api-key': '<your-api-key>',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      targetId: 'javascript-closures',
+      edgeType: 'requires'
+    })
+  }
+);
+const result = await response.json();
+```
+</CodeGroup>
+
+#### Path Parameters
+
+<ParamField path="id" type="string" required>
+  Source concept identifier
+</ParamField>
+
+#### Request Body
+
+<ParamField body="targetId" type="string" required>
+  Target concept identifier
+</ParamField>
+
+<ParamField body="edgeType" type="string" required>
+  Relationship type: "requires", "part_of", "related_to", "alternative_to", "used_with", "is_example_of"
+</ParamField>
+
+#### Response
+
+```json
+{ "ok": true }
+```
+
+**Idempotency**: Duplicate edges are silently ignored (ON CONFLICT DO NOTHING).
+
+**Authentication**: Required (`requireAuth`)
+
+**Source**: `src/api/routes/concepts.ts:157-172`
+
+---
+
+### Get Recursive Prerequisites
+
+Retrieve all prerequisite concepts recursively (up to 10 levels deep).
+
+<CodeGroup>
+```bash cURL
+curl https://api.entendi.dev/api/concepts/react-hooks/prerequisites
+```
+
+```javascript JavaScript
+const response = await fetch(
+  'https://api.entendi.dev/api/concepts/react-hooks/prerequisites'
+);
+const prereqs = await response.json();
+```
+</CodeGroup>
+
+#### Path Parameters
+
+<ParamField path="id" type="string" required>
+  Concept identifier
+</ParamField>
+
+#### Response
+
+Returns an array of prerequisite concepts with depth information:
+
+<ResponseField name="concept_id" type="string">
+  Prerequisite concept ID
+</ResponseField>
+
+<ResponseField name="depth" type="number">
+  Distance from root concept (1 = direct prerequisite)
+</ResponseField>
+
+**Algorithm**: Recursive CTE traversing "requires" edges, returning distinct prerequisites ordered by minimum depth.
+
+**Authentication**: Not required (public read access)
+
+**Source**: `src/api/routes/concepts.ts:175-194`
+
+## Concept Identifier Normalization
+
+All concept IDs are normalized on creation/upsert:
+
+1. Convert to lowercase
+2. Replace spaces and slashes with hyphens
+3. Remove invalid characters (keep only `a-z0-9-_.@`)
+
+**Examples**:
+- `"React Hooks"` → `"react-hooks"`
+- `"TypeScript/Generics"` → `"typescript-generics"`
+- `"AWS S3"` → `"aws-s3"`
+
+**Source**: `src/api/routes/concepts.ts:48-49`
+
+## Edge Types
+
+Supported relationship types:
+
+- **requires**: Prerequisite relationship (A requires B)
+- **part_of**: Hierarchical containment (A is part of B)
+- **related_to**: Associative relationship
+- **alternative_to**: Alternative approaches/techniques
+- **used_with**: Commonly used together
+- **is_example_of**: Exemplar relationship
+
+**Source**: `src/schemas/types.ts:39`

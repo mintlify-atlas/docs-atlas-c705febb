@@ -1,0 +1,309 @@
+---
+title: Probabilistic Model
+description: Bayesian mastery estimation and memory modeling using IRT and FSRS
+---
+
+The probabilistic model module implements mastery tracking using **Item Response Theory (IRT)** and memory retention using **spaced repetition algorithms** (FSRS-4.5).
+
+## Core Functions
+
+### retrievability
+
+Calculates the probability of recall at time `t` using a power-law forgetting curve.
+
+```typescript
+function retrievability(t: number, S: number): number
+```
+
+**Parameters:**
+- `t` — elapsed time in days since last assessment
+- `S` — stability (days until retrievability drops to 90%)
+
+**Returns:** Probability of recall (0-1)
+
+**Example:**
+```typescript
+import { retrievability } from 'entendi';
+
+// After 10 days with stability of 10, retrievability is ~0.9
+const R = retrievability(10, 10);
+console.log(R); // 0.9
+
+// After 30 days with stability of 10, retrievability decays
+const R2 = retrievability(30, 10);
+console.log(R2); // ~0.5
+```
+
+### decayPrior
+
+Blends the posterior belief with the initial prior based on retrievability.
+
+```typescript
+function decayPrior(
+  mu: number,
+  sigma: number,
+  R: number
+): MasteryState
+```
+
+**Parameters:**
+- `mu` — current mastery mean
+- `sigma` — current mastery uncertainty
+- `R` — retrievability (0-1)
+
+**Returns:** `MasteryState` with decayed parameters
+
+**Example:**
+```typescript
+import { decayPrior } from 'entendi';
+
+// When R=1 (just assessed), posterior unchanged
+const result = decayPrior(2.0, 0.5, 1.0);
+// result.mu = 2.0, result.sigma = 0.5
+
+// When R=0.5 (partial forgetting), regress toward prior
+const result2 = decayPrior(2.0, 0.5, 0.5);
+// result2.mu = 1.0, result2.sigma = 1.0
+```
+
+### bayesianUpdate
+
+Performs an Elo-like Kalman update from a rubric score.
+
+```typescript
+function bayesianUpdate(
+  mastery: MasteryState,
+  score: RubricScore
+): MasteryState
+```
+
+**Parameters:**
+- `mastery` — current mastery state (`{mu, sigma}`)
+- `score` — rubric score (0-3)
+
+**Returns:** Updated `MasteryState`
+
+**Example:**
+```typescript
+import { bayesianUpdate, createInitialMastery } from 'entendi';
+
+const mastery = createInitialMastery(); // {mu: 0, sigma: 1.5}
+const updated = bayesianUpdate(mastery, 3); // high score
+console.log(updated.mu); // > 0 (increased)
+console.log(updated.sigma); // < 1.5 (more certain)
+```
+
+## GRM (Graded Response Model)
+
+The GRM functions implement full Item Response Theory for 4-category rubric scores.
+
+### grmBayesianUpdate
+
+Performs Newton-Raphson MAP estimation with Laplace approximation.
+
+```typescript
+function grmBayesianUpdate(
+  score: RubricScore,
+  priorMu: number,
+  priorSigma: number,
+  itemParams?: GRMItemParams
+): GRMUpdateResult
+```
+
+**Parameters:**
+- `score` — rubric score (0-3)
+- `priorMu` — prior mean on IRT scale
+- `priorSigma` — prior standard deviation
+- `itemParams` — (optional) item discrimination and thresholds
+
+**Returns:** `GRMUpdateResult` with `{mu, sigma, converged, iterations}`
+
+**Example:**
+```typescript
+import { grmBayesianUpdate } from 'entendi';
+
+const result = grmBayesianUpdate(2, 0.0, 1.5);
+console.log(result.mu); // updated ability estimate
+console.log(result.sigma); // posterior uncertainty
+console.log(result.converged); // true if Newton-Raphson converged
+```
+
+### grmUpdate
+
+Drop-in GRM wrapper that takes and returns `MasteryState`.
+
+```typescript
+function grmUpdate(
+  mastery: MasteryState,
+  score: RubricScore,
+  itemParams?: GRMItemParams
+): MasteryState
+```
+
+**Example:**
+```typescript
+import { grmUpdate, createInitialMastery } from 'entendi';
+
+const mastery = createInitialMastery();
+const updated = grmUpdate(mastery, 3);
+console.log(updated.mu); // > 0
+```
+
+### grmCategoryProbs
+
+Computes the probability of each rubric score (0-3) given ability `theta`.
+
+```typescript
+function grmCategoryProbs(
+  theta: number,
+  itemParams?: GRMItemParams
+): [number, number, number, number]
+```
+
+**Returns:** Array of 4 probabilities that sum to 1.0
+
+**Example:**
+```typescript
+import { grmCategoryProbs } from 'entendi';
+
+const probs = grmCategoryProbs(0.0);
+console.log(probs); // [P(0), P(1), P(2), P(3)]
+```
+
+### grmFisherInformation
+
+Computes the expected Fisher information at ability level `theta`.
+
+```typescript
+function grmFisherInformation(
+  theta: number,
+  itemParams?: GRMItemParams
+): number
+```
+
+**Returns:** Fisher information (higher = more informative assessment)
+
+**Example:**
+```typescript
+import { grmFisherInformation } from 'entendi';
+
+// Fisher info peaks near the middle threshold (0)
+const infoAtMiddle = grmFisherInformation(0.0);
+const infoFarAway = grmFisherInformation(5.0);
+console.log(infoAtMiddle > infoFarAway); // true
+```
+
+## FSRS Memory Functions
+
+### fsrsStabilityAfterSuccess
+
+Updates stability after successful recall (grades 2-4).
+
+```typescript
+function fsrsStabilityAfterSuccess(
+  S: number,
+  D: number,
+  R: number,
+  grade: 1 | 2 | 3 | 4
+): number
+```
+
+**Parameters:**
+- `S` — current stability
+- `D` — current difficulty (1-10)
+- `R` — retrievability at review time
+- `grade` — FSRS grade (1=Again, 2=Hard, 3=Good, 4=Easy)
+
+**Returns:** Updated stability
+
+**Example:**
+```typescript
+import { fsrsStabilityAfterSuccess } from 'entendi';
+
+const newS = fsrsStabilityAfterSuccess(5.0, 5.0, 0.9, 3);
+console.log(newS); // > 5.0 (increased)
+```
+
+### fsrsDifficultyUpdate
+
+Updates difficulty rating based on performance.
+
+```typescript
+function fsrsDifficultyUpdate(
+  D: number,
+  grade: 1 | 2 | 3 | 4
+): number
+```
+
+**Returns:** Updated difficulty (clamped to 1-10)
+
+**Example:**
+```typescript
+import { fsrsDifficultyUpdate } from 'entendi';
+
+const newD = fsrsDifficultyUpdate(5.0, 4); // Easy grade
+console.log(newD); // < 5.0 (easier)
+```
+
+### mapRubricToFsrsGrade
+
+Maps 0-3 rubric scores to FSRS 1-4 grades.
+
+```typescript
+function mapRubricToFsrsGrade(rubric: RubricScore): 1 | 2 | 3 | 4
+```
+
+**Example:**
+```typescript
+import { mapRubricToFsrsGrade } from 'entendi';
+
+console.log(mapRubricToFsrsGrade(0)); // 1 (Again)
+console.log(mapRubricToFsrsGrade(3)); // 4 (Easy)
+```
+
+## Types
+
+### MasteryState
+
+```typescript
+interface MasteryState {
+  mu: number;      // IRT scale mean
+  sigma: number;   // Standard deviation
+}
+```
+
+### GRMItemParams
+
+```typescript
+interface GRMItemParams {
+  discrimination: number;                  // a parameter (slope)
+  thresholds: [number, number, number];    // b1 < b2 < b3 (category boundaries)
+}
+
+const DEFAULT_GRM_PARAMS: GRMItemParams = {
+  discrimination: 1.0,
+  thresholds: [-1.0, 0.0, 1.0],
+};
+```
+
+### GRMUpdateResult
+
+```typescript
+interface GRMUpdateResult {
+  mu: number;
+  sigma: number;
+  converged: boolean;
+  iterations: number;
+}
+```
+
+### RubricScore
+
+```typescript
+type RubricScore = 0 | 1 | 2 | 3
+```
+
+- **0** — No understanding
+- **1** — Surface/partial understanding
+- **2** — Functional understanding
+- **3** — Deep/transferable understanding

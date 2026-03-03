@@ -1,0 +1,279 @@
+---
+title: 'record-evaluation'
+description: 'Record probe or tutor evaluation and update mastery'
+---
+
+## Overview
+
+The `record-evaluation` tool is called after Claude Code evaluates a user's response to a probe or tutor question. It:
+1. Validates the probe token (for probe events)
+2. Analyzes response integrity (typing speed, formatting, vocab)
+3. Applies Bayesian update: time decay → GRM update → FSRS update → counterfactual tracking
+4. Records assessment event in database
+5. Clears pending action
+6. Offers tutor if probe score ≤ 1
+
+## Endpoint
+
+```
+POST /api/mcp/record-evaluation
+```
+
+## Request Body
+
+<ParamField body="conceptId" type="string" required>
+  Concept identifier (1-200 chars). Will be normalized via alias lookup.
+</ParamField>
+
+<ParamField body="score" type="integer" required>
+  Rubric score:
+  - `0`: No understanding
+  - `1`: Partial understanding
+  - `2`: Good understanding
+  - `3`: Complete understanding
+</ParamField>
+
+<ParamField body="confidence" type="number" required>
+  Evaluator confidence (0-1). Used to weight the update.
+</ParamField>
+
+<ParamField body="reasoning" type="string" required>
+  Evaluation reasoning (max 2000 chars). Stored for audit trail.
+</ParamField>
+
+<ParamField body="eventType" type="enum" required>
+  Type of assessment event:
+  - `probe`: Standalone probe during work
+  - `tutor_phase1`: Tutor diagnostic (phase 1)
+  - `tutor_phase4`: Tutor final assessment (phase 4)
+</ParamField>
+
+<ParamField body="probeToken" type="object">
+  **Required for probe events.** Signed token from `observe` response. All fields must match exactly.
+</ParamField>
+
+<ParamField body="responseText" type="string">
+  **Required for probe events.** User's response text (1-10000 chars). Used for integrity analysis.
+</ParamField>
+
+## Response
+
+<ResponseField name="mastery" type="number" required>
+  New mastery probability (0-1) after update
+</ResponseField>
+
+<ResponseField name="previousMastery" type="number" required>
+  Mastery probability before update
+</ResponseField>
+
+<ResponseField name="sigma" type="number" required>
+  New posterior standard deviation (uncertainty)
+</ResponseField>
+
+<ResponseField name="previousSigma" type="number" required>
+  Previous sigma value
+</ResponseField>
+
+<ResponseField name="shouldOfferTutor" type="boolean" required>
+  Whether to offer a tutor session (only `true` for probe events with score ≤ 1)
+</ResponseField>
+
+<ResponseField name="integrityScore" type="number">
+  Response integrity score (0-1). Only present for probe/tutor evaluations with responseText.
+</ResponseField>
+
+<ResponseField name="integrityFlags" type="array">
+  Array of integrity warning flags (e.g., `["suspicious_typing_speed", "high_formatting"]`)
+</ResponseField>
+
+<ResponseField name="message" type="string" required>
+  Human-readable summary (e.g., "Mastery improved from 42.0% to 58.3%")
+</ResponseField>
+
+## Example Request (Probe)
+
+```json
+{
+  "conceptId": "async-await",
+  "score": 2,
+  "confidence": 0.8,
+  "reasoning": "User explained async/await correctly with a practical example. Mentioned error handling but didn't cover Promise.all or race conditions.",
+  "eventType": "probe",
+  "responseText": "Async/await is syntactic sugar over Promises that makes asynchronous code look synchronous. You use async to mark a function as asynchronous, and await to pause execution until a Promise resolves. This makes code more readable than chaining .then() calls.",
+  "probeToken": {
+    "tokenId": "550e8400-e29b-41d4-a716-446655440000",
+    "userId": "usr_abc123",
+    "conceptId": "async-await",
+    "depth": 2,
+    "evaluationCriteria": "Ask about trade-offs and design decisions related to async await...",
+    "issuedAt": "2026-03-03T10:30:00.000Z",
+    "expiresAt": "2026-03-03T11:00:00.000Z",
+    "signature": "a1b2c3d4e5f6..."
+  }
+}
+```
+
+## Example Response (Probe, Good Score)
+
+```json
+{
+  "mastery": 0.583,
+  "previousMastery": 0.42,
+  "sigma": 0.62,
+  "previousSigma": 0.85,
+  "shouldOfferTutor": false,
+  "integrityScore": 0.89,
+  "message": "Mastery improved from 42.0% to 58.3%"
+}
+```
+
+## Example Request (Tutor Phase 4)
+
+```json
+{
+  "conceptId": "react/useState",
+  "score": 3,
+  "confidence": 0.9,
+  "reasoning": "User gave a comprehensive explanation covering state updates, re-renders, functional updates, and common pitfalls.",
+  "eventType": "tutor_phase4",
+  "responseText": "useState is a React hook that lets you add state to functional components. It returns a state variable and a setter function. When you call the setter, React re-renders the component with the new value. You should use functional updates when the new state depends on the old state to avoid stale closures."
+}
+```
+
+## Example Response (Tutor Phase 4)
+
+```json
+{
+  "mastery": 0.87,
+  "previousMastery": 0.52,
+  "sigma": 0.48,
+  "previousSigma": 0.71,
+  "shouldOfferTutor": false,
+  "integrityScore": 0.93,
+  "message": "Mastery improved from 52.0% to 87.0%"
+}
+```
+
+## Implementation Details
+
+### Probe Token Validation
+
+For `eventType: 'probe'`, the following checks are performed:
+
+1. **Signature verification**: HMAC-SHA256 over all token fields
+2. **Expiry check**: `now < expiresAt`
+3. **User match**: `token.userId === authenticated userId`
+4. **Concept match**: `token.conceptId === request conceptId`
+5. **Database lookup**: Token exists and hasn't been used (`usedAt IS NULL`)
+6. **Rate limit**: Per-concept evaluation rate limit (org-configurable)
+
+If any check fails, returns `403 Forbidden` with reason.
+
+Source: `src/core/probe-token.ts:verifyProbeToken` and `src/api/routes/mcp.ts:428-486`.
+
+### Response Integrity Analysis
+
+For probe and tutor evaluations with `responseText`, the following features are extracted:
+
+- **Typing speed**: `chars / (responseTimeMs / 1000)` → chars/second
+- **Word count**: Number of whitespace-separated tokens
+- **Char count**: Total characters
+- **Formatting score**: Presence of markdown, code blocks, lists
+- **Vocab complexity**: Unique words / total words, avg word length
+
+These are compared against the user's baseline profile (EMA-tracked) to compute an integrity score:
+
+```typescript
+integrityScore = 1.0 - sum(deviations) / maxDeviation
+```
+
+Flags like `suspicious_typing_speed` or `high_formatting` are returned if specific thresholds are exceeded.
+
+Source: `src/core/response-integrity.ts:extractResponseFeatures`, `computeIntegrityScore`, and `src/api/routes/mcp.ts:488-538`.
+
+### Bayesian Update Pipeline
+
+The mastery update follows this sequence:
+
+1. **Load current state**: `(mu, sigma, stability, difficulty)` from `user_concept_states`
+2. **Time decay**: Apply FSRS retrievability `R = exp(-t / S)` to prior
+   ```typescript
+   const R = retrievability(elapsedDays, stability);
+   const decayed = decayPrior(mu, sigma, R);
+   ```
+3. **GRM update**: Bayesian update using Graded Response Model
+   ```typescript
+   const updated = grmUpdate({ mu: currentMu, sigma: currentSigma }, score, itemParams);
+   ```
+4. **FSRS update**: Update stability and difficulty
+   ```typescript
+   newStability = fsrsStabilityAfterSuccess(stability, difficulty, R, fsrsGrade);
+   newDifficulty = fsrsDifficultyUpdate(difficulty, fsrsGrade);
+   ```
+5. **Counterfactual tracking**: For tutor events, apply `tutoredWeight = 0.5` to dampen the update:
+   ```typescript
+   newMu = currentMu + 0.5 * (updated.mu - currentMu);
+   ```
+6. **Integrity dampening**: If `integrityScore < dampeningThreshold`, scale the update by `integrityScore`:
+   ```typescript
+   newMu = currentMu + integrityScore * (newMu - currentMu);
+   ```
+
+Source: `src/api/routes/mcp.ts:applyBayesianUpdateDb` (lines 1193-1353).
+
+### Prerequisite Propagation
+
+After a successful assessment (`score >= 2`), the system propagates a small mastery boost to direct prerequisites. This reflects the insight that understanding a concept provides weak evidence of understanding its prerequisites.
+
+```typescript
+await propagatePrerequisiteBoost(db, userId, conceptId, 0.1);
+```
+
+Source: `src/core/prerequisite-propagation.ts` and `src/api/routes/mcp.ts:1353` (not shown in truncated output, but present in full file).
+
+### Tutor Offering
+
+For probe events only, if `score <= 1`, the system:
+1. Sets `shouldOfferTutor = true`
+2. Writes a `tutor_offered` pending action
+3. Claude Code will present the tutor offer in the next response
+
+Source: `src/api/routes/mcp.ts:558-574`.
+
+## Error Responses
+
+### 400 Bad Request
+
+```json
+{
+  "error": "Response text required for probe evaluations"
+}
+```
+
+### 403 Forbidden (Invalid Token)
+
+```json
+{
+  "error": "Invalid probe token: signature_mismatch"
+}
+```
+
+```json
+{
+  "error": "Invalid probe token: already used"
+}
+```
+
+### 429 Too Many Requests (Rate Limited)
+
+```json
+{
+  "error": "Rate limit: max 3 probe evaluation(s) per concept per 24h"
+}
+```
+
+## Related
+
+- [observe](/api/mcp/observe) — Generate probe token
+- [tutor](/api/mcp/tutor) — Start tutor session after low score
+- [query](/api/mcp/query) — View updated mastery state

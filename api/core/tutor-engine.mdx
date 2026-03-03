@@ -1,0 +1,334 @@
+---
+title: Tutor Engine
+description: Socratic tutoring through 4-phase guided discovery dialogue
+---
+
+The tutor engine implements a structured Socratic dialogue with four phases: Review, Guided Discovery, Rectification, and Consolidation.
+
+## Core Function
+
+### generateTutorQuestion
+
+Generates a tutor question for the current phase using Claude Haiku.
+
+```typescript
+async function generateTutorQuestion(prompt: string): Promise<ParsedTutorResponse>
+```
+
+**Parameters:**
+- `prompt` — Full LLM prompt (built using phase-specific builders)
+
+**Returns:**
+```typescript
+interface ParsedTutorResponse {
+  question: string;
+  misconceptionDetected: string | null;
+}
+```
+
+**Example:**
+```typescript
+import { generateTutorQuestion, buildPhase1Prompt } from 'entendi';
+
+const prompt = buildPhase1Prompt({
+  conceptName: 'Redis pub/sub',
+  triggerContext: 'npm install redis',
+});
+
+const response = await generateTutorQuestion(prompt);
+console.log(response.question); // "What do you already know about Redis pub/sub?"
+console.log(response.misconceptionDetected); // null
+```
+
+## Phase Builders
+
+### buildPhase1Prompt
+
+**Phase 1: Review** — Assess what the learner already knows.
+
+```typescript
+function buildPhase1Prompt(input: {
+  conceptName: string;
+  triggerContext: string;
+}): string
+```
+
+**Example:**
+```typescript
+import { buildPhase1Prompt } from 'entendi';
+
+const prompt = buildPhase1Prompt({
+  conceptName: 'Redis pub/sub',
+  triggerContext: 'Implemented a pub/sub message broker',
+});
+
+console.log(prompt); // Diagnostic prompt asking about existing knowledge
+```
+
+### buildPhase2Prompt
+
+**Phase 2: Guided Discovery** — Push toward deeper understanding through questioning.
+
+```typescript
+function buildPhase2Prompt(input: {
+  conceptName: string;
+  exchanges: TutorExchangeInput[];
+}): string
+```
+
+**Example:**
+```typescript
+import { buildPhase2Prompt } from 'entendi';
+
+const prompt = buildPhase2Prompt({
+  conceptName: 'Redis pub/sub',
+  exchanges: [
+    {
+      phase: 'phase1',
+      question: 'What do you know about Redis pub/sub?',
+      response: 'It broadcasts messages to subscribers',
+    },
+  ],
+});
+
+// Prompt will identify gaps and ask a deeper question
+```
+
+### buildPhase3Prompt
+
+**Phase 3: Rectification** — Correct misconceptions or deepen understanding.
+
+```typescript
+function buildPhase3Prompt(input: {
+  conceptName: string;
+  exchanges: TutorExchangeInput[];
+  misconception?: string;
+}): string
+```
+
+**Example:**
+```typescript
+import { buildPhase3Prompt } from 'entendi';
+
+const prompt = buildPhase3Prompt({
+  conceptName: 'Redis pub/sub',
+  exchanges: [
+    {
+      phase: 'phase1',
+      question: 'What do you know about Redis pub/sub?',
+      response: 'It guarantees message delivery to all subscribers',
+    },
+  ],
+  misconception: 'Redis pub/sub does not guarantee delivery; messages are fire-and-forget',
+});
+
+// Prompt will guide learner to discover the misconception
+```
+
+### buildPhase4Prompt
+
+**Phase 4: Consolidation** — Ask the learner to explain the full picture.
+
+```typescript
+function buildPhase4Prompt(input: {
+  conceptName: string;
+  exchanges: TutorExchangeInput[];
+}): string
+```
+
+**Example:**
+```typescript
+import { buildPhase4Prompt } from 'entendi';
+
+const prompt = buildPhase4Prompt({
+  conceptName: 'Redis pub/sub',
+  exchanges: [
+    {
+      phase: 'phase1',
+      question: 'What do you know about Redis pub/sub?',
+      response: 'Message broadcasting system',
+    },
+    {
+      phase: 'phase2',
+      question: 'What happens if a subscriber disconnects?',
+      response: 'Messages are lost since pub/sub is fire-and-forget',
+    },
+  ],
+});
+
+// Summative assessment question
+```
+
+## Response Parser
+
+### parseTutorResponse
+
+Parses the LLM response into a structured tutor response.
+
+```typescript
+function parseTutorResponse(raw: string): ParsedTutorResponse
+```
+
+**Example:**
+```typescript
+import { parseTutorResponse } from 'entendi';
+
+const raw = `{
+  "question": "What happens if a subscriber disconnects during message delivery?",
+  "misconceptionDetected": "Believes Redis pub/sub guarantees delivery"
+}`;
+
+const response = parseTutorResponse(raw);
+console.log(response.question);
+console.log(response.misconceptionDetected);
+```
+
+## Tutor Workflow
+
+A complete tutor session follows this flow:
+
+```typescript
+import {
+  buildPhase1Prompt,
+  buildPhase2Prompt,
+  buildPhase3Prompt,
+  buildPhase4Prompt,
+  generateTutorQuestion,
+} from 'entendi';
+
+// Phase 1: Review
+const phase1Prompt = buildPhase1Prompt({
+  conceptName: 'Redis pub/sub',
+  triggerContext: 'npm install redis',
+});
+const phase1Q = await generateTutorQuestion(phase1Prompt);
+console.log(phase1Q.question);
+// User answers...
+
+const exchanges = [
+  {
+    phase: 'phase1' as const,
+    question: phase1Q.question,
+    response: 'It lets publishers send messages to channels',
+  },
+];
+
+// Phase 2: Guided Discovery
+const phase2Prompt = buildPhase2Prompt({
+  conceptName: 'Redis pub/sub',
+  exchanges,
+});
+const phase2Q = await generateTutorQuestion(phase2Prompt);
+console.log(phase2Q.question);
+// User answers...
+
+exchanges.push({
+  phase: 'phase2',
+  question: phase2Q.question,
+  response: 'Messages are stored and replayed to late subscribers',
+});
+
+// Phase 3: Rectification (misconception detected)
+const phase3Prompt = buildPhase3Prompt({
+  conceptName: 'Redis pub/sub',
+  exchanges,
+  misconception: 'Redis pub/sub does not store messages; it is fire-and-forget',
+});
+const phase3Q = await generateTutorQuestion(phase3Prompt);
+console.log(phase3Q.question);
+// User answers...
+
+exchanges.push({
+  phase: 'phase3',
+  question: phase3Q.question,
+  response: 'Oh, so if a subscriber is offline, it misses messages?',
+});
+
+// Phase 4: Consolidation
+const phase4Prompt = buildPhase4Prompt({
+  conceptName: 'Redis pub/sub',
+  exchanges,
+});
+const phase4Q = await generateTutorQuestion(phase4Prompt);
+console.log(phase4Q.question);
+// Final summative answer...
+```
+
+## Tutor Phases
+
+| Phase | Name | Goal |
+|-------|------|------|
+| **Phase 1** | Review | Assess existing knowledge (diagnostic) |
+| **Phase 2** | Guided Discovery | Identify gaps and guide toward deeper principles |
+| **Phase 3** | Rectification | Correct misconceptions or explore edge cases |
+| **Phase 4** | Consolidation | Summative assessment of full understanding |
+
+## Socratic Guidelines
+
+The tutor follows these principles:
+
+- **Ask one focused question at a time**
+- **Build on previous answers** to scaffold understanding
+- **Detect misconceptions** but guide toward correction rather than stating the answer
+- **Keep questions concise** (1-2 sentences)
+- **No lecturing** — lead through questioning
+
+## Model Configuration
+
+- **Model:** `claude-haiku-4-5-20251001`
+- **Max tokens:** 400
+- **API:** Anthropic SDK (lazy-initialized)
+
+## Types
+
+### TutorExchangeInput
+
+```typescript
+interface TutorExchangeInput {
+  phase: string;
+  question: string;
+  response: string | null;
+}
+```
+
+### ParsedTutorResponse
+
+```typescript
+interface ParsedTutorResponse {
+  question: string;
+  misconceptionDetected: string | null;
+}
+```
+
+### TutorPhase
+
+```typescript
+type TutorPhase = 'offered' | 'phase1' | 'phase2' | 'phase3' | 'phase4' | 'complete'
+```
+
+### TutorExchange
+
+```typescript
+interface TutorExchange {
+  phase: TutorPhase;
+  question: string;
+  response: string | null;
+}
+```
+
+### TutorSession
+
+```typescript
+interface TutorSession {
+  sessionId: string;
+  conceptId: string;
+  phase: TutorPhase;
+  startedAt: string;
+  lastActivityAt: string;
+  triggerProbeScore: RubricScore | null;
+  exchanges: TutorExchange[];
+  phase1Score: RubricScore | null;
+  phase4Score: RubricScore | null;
+  lastMisconception: string | null;
+}
+```

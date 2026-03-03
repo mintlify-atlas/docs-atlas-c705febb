@@ -1,0 +1,198 @@
+---
+title: Login & Authentication
+description: Authenticate with Entendi using device linking or social login
+---
+
+## Overview
+
+Entendi supports multiple authentication methods:
+
+- **Device Code Flow** (CLI and plugin)
+- **Email/Password** (dashboard)
+- **Social OAuth** (GitHub, Google)
+
+## Device Code Flow
+
+The primary authentication method for CLI and plugin users.
+
+### How It Works
+
+1. **Initiate Login** from your editor:
+   ```
+   User: "entendi login"
+   ```
+   Or use the MCP tool:
+   ```
+   entendi_login
+   ```
+
+2. **Receive Device Code**: The system generates an 8-character code using unambiguous characters (excluding 0/O, 1/I/l)
+   ```
+   Code: K3N7W9QR
+   Verify at: https://entendi.dev/link?code=K3N7W9QR
+   ```
+
+3. **Verify on Dashboard**: Open the verification URL in your browser
+   - If not logged in, authenticate via email/password or social login
+   - Confirm the device code matches
+   - Click "Confirm Link"
+
+4. **API Key Generated**: System creates a device-specific API key
+   - Stored in `~/.entendi/config.json`
+   - Named `device-<code>` for tracking
+   - No rate limiting (uses Better Auth API key plugin)
+
+5. **Polling Complete**: CLI receives API key and saves to config
+   ```
+   ✓ Linked successfully
+   API key saved to ~/.entendi/config.json
+   ```
+
+### Implementation Details
+
+From `src/api/routes/device-code.ts:8-39`:
+
+- Device codes expire after **10 minutes**
+- Code generation uses charset: `23456789ABCDEFGHJKLMNPQRSTUVWXYZ`
+- Status: `pending` → `confirmed`
+- Single-use: deleted after retrieval
+
+### CLI Detection
+
+The system automatically detects login intent from prompts matching:
+
+```typescript
+/entendi\s+login/i
+/link\s+(?:my\s+)?(?:entendi\s+)?account/i
+```
+
+When detected, the `UserPromptSubmit` hook injects guidance to call `entendi_login`.
+
+### Troubleshooting
+
+**Code expired**:
+- Codes are valid for 10 minutes
+- Run `entendi login` again to generate a new code
+
+**Verification URL not opening**:
+- Manually copy the URL from terminal
+- Ensure you're logged into entendi.dev in your browser
+
+**"Device code not found"**:
+- Code may have been used or expired
+- Check for typos (avoid ambiguous characters)
+
+**API key not saved**:
+- Ensure `~/.entendi/` directory exists and is writable
+- Check terminal for error messages
+
+## Email/Password Login
+
+Used for dashboard authentication:
+
+1. Navigate to [entendi.dev/login](https://entendi.dev/login)
+2. Enter email and password
+3. If email verification is enabled (via Resend), confirm your email
+4. Session created with 7-day expiration
+
+### Email Verification
+
+From `src/api/lib/auth.ts:76-91`:
+
+- Required if `RESEND_API_KEY` is configured
+- Verification email sent on signup
+- Auto-signin after verification
+- Uses `EmailVerification` template
+
+## Social OAuth
+
+### GitHub
+
+Requires environment variables:
+```bash
+GITHUB_CLIENT_ID=your_client_id
+GITHUB_CLIENT_SECRET=your_secret
+```
+
+### Google
+
+Requires environment variables:
+```bash
+GOOGLE_CLIENT_ID=your_client_id
+GOOGLE_CLIENT_SECRET=your_secret
+```
+
+### OAuth Flow
+
+1. Click "Sign in with GitHub/Google" on dashboard
+2. Authorize Entendi to access basic profile information
+3. Account created or linked automatically
+4. Session established
+
+## Organization Invitations
+
+From `src/api/lib/auth.ts:101-124`:
+
+When you sign up with an email that has pending organization invitations:
+
+1. User account created
+2. System checks for pending invitations matching your email
+3. Invitations automatically accepted
+4. You're added to the organization with the invited role
+
+This ensures seamless onboarding for team members invited before signup.
+
+## Session Management
+
+- **Session Duration**: 7 days
+- **Update Age**: Refreshed after 1 day of activity
+- **Storage**: HTTP-only cookies via Better Auth
+- **Trusted Origins**: entendi.dev, api.entendi.dev, localhost:3456
+
+## API Keys
+
+### Creating Keys
+
+- Dashboard: Settings → API Keys → Create New
+- Device code: Automatically generated during linking
+- Organization: Admins can create service account keys
+
+### Using Keys
+
+Include in request headers:
+```http
+X-API-Key: your_api_key_here
+```
+
+### Security
+
+- API keys enable session-equivalent access
+- No rate limiting by default
+- Delete unused keys immediately
+- Each device should have its own key
+- Keys are hashed in the database
+
+## Account Deletion
+
+From dashboard Settings:
+
+1. Navigate to Settings → Account
+2. Click "Delete Account"
+3. Confirm deletion
+4. All data removed:
+   - Mastery scores
+   - Assessment history
+   - Probe responses
+   - Behavioral profiles
+   - API keys
+
+**Note**: This action is irreversible.
+
+## Security Best Practices
+
+- Use unique, strong passwords
+- Enable email verification
+- Don't share API keys
+- Use device-specific keys for each machine
+- Revoke keys for lost/compromised devices
+- Review active sessions regularly

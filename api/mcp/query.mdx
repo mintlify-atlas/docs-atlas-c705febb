@@ -1,0 +1,315 @@
+---
+title: 'query'
+description: 'Query mastery state and ZPD frontier'
+---
+
+## Overview
+
+The query tools provide read-only access to the user's mastery state:
+- **GET /status**: Query mastery for a specific concept or get overview of all concepts
+- **GET /zpd-frontier**: Get the Zone of Proximal Development frontier (concepts ready to learn next)
+
+These endpoints are used by:
+- Claude Code to check mastery before answering questions
+- Dashboard to display progress
+- Hooks to decide whether to surface concepts
+
+## Get Status
+
+### Endpoint
+
+```
+GET /api/mcp/status?conceptId={id}
+```
+
+### Query Parameters
+
+<ParamField query="conceptId" type="string">
+  Concept ID to query. If omitted, returns overview of all concepts.
+</ParamField>
+
+### Response (Single Concept)
+
+<ResponseField name="concept" type="object">
+  Mastery details for the requested concept
+  
+  <Expandable title="concept object">
+    <ResponseField name="mastery" type="number">
+      Mastery probability (0-1)
+    </ResponseField>
+    <ResponseField name="sigma" type="number">
+      Posterior standard deviation (uncertainty)
+    </ResponseField>
+    <ResponseField name="posteriorVariance" type="number">
+      Variance (`sigma^2`) — alternative uncertainty measure
+    </ResponseField>
+    <ResponseField name="confidenceLevel" type="enum">
+      Human-readable confidence:
+      - `none`: Never assessed
+      - `low`: `sigma >= 0.8`
+      - `medium`: `0.4 <= sigma < 0.8`
+      - `high`: `sigma < 0.4`
+    </ResponseField>
+    <ResponseField name="assessmentCount" type="integer">
+      Total number of assessments (probes + tutor)
+    </ResponseField>
+    <ResponseField name="lastAssessed" type="string">
+      ISO 8601 timestamp of last assessment (null if never assessed)
+    </ResponseField>
+    <ResponseField name="tutoredCount" type="integer">
+      Number of tutored assessments
+    </ResponseField>
+    <ResponseField name="untutoredCount" type="integer">
+      Number of untutored (organic) assessments
+    </ResponseField>
+    <ResponseField name="urgency" type="number">
+      Probe urgency score (0-1)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Response (Overview)
+
+<ResponseField name="overview" type="object">
+  Summary of all concepts
+  
+  <Expandable title="overview object">
+    <ResponseField name="totalConcepts" type="integer">
+      Total concepts in knowledge graph
+    </ResponseField>
+    <ResponseField name="mastered" type="integer">
+      Concepts with `mastery >= 0.7`
+    </ResponseField>
+    <ResponseField name="inProgress" type="integer">
+      Assessed concepts with `mastery < 0.7`
+    </ResponseField>
+    <ResponseField name="unknown" type="integer">
+      Concepts with zero assessments
+    </ResponseField>
+    <ResponseField name="recentActivity" type="array">
+      5 most recently assessed concepts (format: `"conceptId (timestamp)"`)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Request (Single Concept)
+
+```
+GET /api/mcp/status?conceptId=react/useState
+```
+
+### Example Response (Single Concept)
+
+```json
+{
+  "concept": {
+    "mastery": 0.785,
+    "sigma": 0.52,
+    "posteriorVariance": 0.2704,
+    "confidenceLevel": "medium",
+    "assessmentCount": 3,
+    "lastAssessed": "2026-03-03T10:45:00.000Z",
+    "tutoredCount": 1,
+    "untutoredCount": 2,
+    "urgency": 0.23
+  }
+}
+```
+
+### Example Request (Overview)
+
+```
+GET /api/mcp/status
+```
+
+### Example Response (Overview)
+
+```json
+{
+  "overview": {
+    "totalConcepts": 247,
+    "mastered": 32,
+    "inProgress": 18,
+    "unknown": 197,
+    "recentActivity": [
+      "react/useState (2026-03-03T10:45:00.000Z)",
+      "async-await (2026-03-03T09:30:00.000Z)",
+      "drizzle-orm (2026-03-02T16:20:00.000Z)",
+      "typescript/generics (2026-03-02T14:10:00.000Z)",
+      "react/useEffect (2026-03-01T11:05:00.000Z)"
+    ]
+  }
+}
+```
+
+## Get ZPD Frontier
+
+### Endpoint
+
+```
+GET /api/mcp/zpd-frontier?limit={n}&domain={d}&includeUnassessed={bool}
+```
+
+### Query Parameters
+
+<ParamField query="limit" type="integer" default="20">
+  Maximum concepts to return (1-100)
+</ParamField>
+
+<ParamField query="domain" type="string">
+  Filter by domain (e.g., `"react"`, `"typescript"`). Omit to include all domains.
+</ParamField>
+
+<ParamField query="includeUnassessed" type="boolean" default="false">
+  Include concepts with zero assessments. If `false`, only returns assessed concepts.
+</ParamField>
+
+### Response
+
+<ResponseField name="frontier" type="array" required>
+  Array of concepts in the ZPD, sorted by Fisher information (descending)
+  
+  <Expandable title="frontier item">
+    <ResponseField name="conceptId" type="string">
+      Concept identifier
+    </ResponseField>
+    <ResponseField name="domain" type="string">
+      Concept domain
+    </ResponseField>
+    <ResponseField name="mastery" type="number">
+      Current mastery probability (0-1)
+    </ResponseField>
+    <ResponseField name="assessmentCount" type="integer">
+      Number of assessments
+    </ResponseField>
+    <ResponseField name="fisherInfo" type="number">
+      Fisher information (higher = more informative to assess)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="totalConcepts" type="integer" required>
+  Total concepts in knowledge graph
+</ResponseField>
+
+<ResponseField name="masteredCount" type="integer" required>
+  Concepts with `mastery >= 0.7`
+</ResponseField>
+
+### Example Request
+
+```
+GET /api/mcp/zpd-frontier?limit=5&domain=react&includeUnassessed=false
+```
+
+### Example Response
+
+```json
+{
+  "frontier": [
+    {
+      "conceptId": "react/useCallback",
+      "domain": "react",
+      "mastery": 0.42,
+      "assessmentCount": 1,
+      "fisherInfo": 0.89
+    },
+    {
+      "conceptId": "react/useMemo",
+      "domain": "react",
+      "mastery": 0.38,
+      "assessmentCount": 1,
+      "fisherInfo": 0.85
+    },
+    {
+      "conceptId": "react/useContext",
+      "domain": "react",
+      "mastery": 0.51,
+      "assessmentCount": 2,
+      "fisherInfo": 0.79
+    },
+    {
+      "conceptId": "react/useReducer",
+      "domain": "react",
+      "mastery": 0.35,
+      "assessmentCount": 1,
+      "fisherInfo": 0.76
+    },
+    {
+      "conceptId": "react/useRef",
+      "domain": "react",
+      "mastery": 0.48,
+      "assessmentCount": 1,
+      "fisherInfo": 0.72
+    }
+  ],
+  "totalConcepts": 247,
+  "masteredCount": 32
+}
+```
+
+## Implementation Details
+
+### Zone of Proximal Development (ZPD)
+
+The ZPD frontier includes concepts where:
+1. **Concept is not mastered**: `mastery < 0.7`
+2. **All prerequisites are mastered**: For every `requires` edge `C → P`, `P.mastery >= 0.7`
+
+This ensures the user is ready to learn the concept — they have the foundation but haven't mastered it yet.
+
+Implemented via SQL:
+```sql
+WHERE (1.0 / (1.0 + EXP(-COALESCE(ucs.mu, 0)))) < 0.7
+  AND NOT EXISTS (
+    SELECT 1 FROM concept_edges ce
+    LEFT JOIN user_concept_states pucs ON pucs.concept_id = ce.target_id
+    WHERE ce.source_id = c.id
+      AND ce.edge_type = 'requires'
+      AND (1.0 / (1.0 + EXP(-COALESCE(pucs.mu, 0)))) < 0.7
+  )
+```
+
+Source: `src/api/routes/mcp.ts:1085-1104`.
+
+### Sorting
+
+Frontier is sorted by:
+1. **Assessed first**: Concepts with `assessmentCount > 0` come before unassessed
+2. **Fisher info descending**: Within each group, sort by information gain
+
+This prioritizes:
+- Concepts we already have some signal on (more targeted probing)
+- Concepts where probing will reduce uncertainty the most
+
+Source: `src/api/routes/mcp.ts:1132-1137`.
+
+### Confidence Level
+
+For single-concept queries, `confidenceLevel` is derived from `sigma`:
+
+```typescript
+if (assessmentCount === 0) confidenceLevel = 'none';
+else if (sigma < 0.4) confidenceLevel = 'high';
+else if (sigma < 0.8) confidenceLevel = 'medium';
+else confidenceLevel = 'low';
+```
+
+Lower sigma = higher confidence in mastery estimate.
+
+Source: `src/api/routes/mcp.ts:1019-1023`.
+
+### Urgency Score
+
+For single-concept queries, urgency is computed via `probeUrgency()` which combines:
+- Uncertainty (`sigma`)
+- Staleness (days since last assessment + FSRS decay)
+- Assessment count (boost novel concepts)
+- Fisher information (not used for display, set to 0)
+
+Source: `src/core/probe-urgency.ts` and `src/api/routes/mcp.ts:1035-1041`.
+
+## Related
+
+- [observe](/api/mcp/observe) — Uses status to compute probe urgency
+- [record-evaluation](/api/mcp/record-evaluation) — Updates mastery state

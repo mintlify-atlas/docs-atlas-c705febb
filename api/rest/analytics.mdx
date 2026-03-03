@@ -1,0 +1,429 @@
+---
+title: Analytics
+description: Track mastery progress, learning velocity, and activity heatmaps
+---
+
+## Overview
+
+The Analytics API provides comprehensive learning insights including:
+
+- Mastery timelines for individual concepts or aggregate progress
+- Learning velocity metrics over rolling windows
+- Activity heatmaps for calendar visualizations
+- Detailed concept profiles with assessment history
+
+**Authentication**: All analytics endpoints require authentication.
+
+**Base path**: `/api/analytics`
+
+**Source**: `src/api/routes/analytics.ts`
+
+## Endpoints
+
+### Get Concept Timeline
+
+Retrieve mastery progression over time for a specific concept.
+
+<CodeGroup>
+```bash cURL
+curl https://api.entendi.dev/api/analytics/timeline/:conceptId \
+  -H "x-api-key: <your-api-key>"
+```
+
+```javascript JavaScript
+const response = await fetch(
+  `https://api.entendi.dev/api/analytics/timeline/${conceptId}`,
+  {
+    headers: { 'x-api-key': '<your-api-key>' }
+  }
+);
+const data = await response.json();
+```
+</CodeGroup>
+
+#### Path Parameters
+
+<ParamField path="conceptId" type="string" required>
+  Concept identifier (e.g., "react-hooks", "typescript-generics")
+</ParamField>
+
+#### Response
+
+<ResponseField name="conceptId" type="string">
+  The concept identifier
+</ResponseField>
+
+<ResponseField name="currentMastery" type="object | null">
+  Current mastery state (null if never assessed)
+  
+  <Expandable title="properties">
+    <ResponseField name="lower" type="number">
+      Lower bound of 95% confidence interval (0-1 scale)
+    </ResponseField>
+    <ResponseField name="estimate" type="number">
+      Point estimate of mastery (0-1 scale)
+    </ResponseField>
+    <ResponseField name="upper" type="number">
+      Upper bound of 95% confidence interval (0-1 scale)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="timeline" type="array">
+  Assessment events in chronological order (up to 200 events)
+  
+  <Expandable title="event object">
+    <ResponseField name="eventId" type="string">
+      Assessment event ID
+    </ResponseField>
+    <ResponseField name="timestamp" type="string">
+      ISO timestamp of assessment
+    </ResponseField>
+    <ResponseField name="mastery" type="object">
+      Mastery range at this point (lower, estimate, upper)
+    </ResponseField>
+    <ResponseField name="eventType" type="string">
+      Type: "probe", "tutor_phase1", "tutor_phase4", "implicit"
+    </ResponseField>
+    <ResponseField name="rubricScore" type="number">
+      Score: 0 (fail), 1 (partial), 2 (good), 3 (excellent)
+    </ResponseField>
+    <ResponseField name="integrityScore" type="number | null">
+      Confidence in assessment validity (0-1)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Source**: `src/api/routes/analytics.ts:21-66`
+
+---
+
+### Get Aggregate Timeline
+
+Retrieve aggregate mastery progression across all concepts, grouped by day.
+
+<CodeGroup>
+```bash cURL
+curl https://api.entendi.dev/api/analytics/timeline \
+  -H "x-api-key: <your-api-key>"
+```
+
+```javascript JavaScript
+const response = await fetch(
+  'https://api.entendi.dev/api/analytics/timeline',
+  {
+    headers: { 'x-api-key': '<your-api-key>' }
+  }
+);
+const data = await response.json();
+```
+</CodeGroup>
+
+#### Response
+
+<ResponseField name="timeline" type="array">
+  Daily aggregates sorted chronologically (up to 500 events)
+  
+  <Expandable title="day object">
+    <ResponseField name="date" type="string">
+      Date in YYYY-MM-DD format
+    </ResponseField>
+    <ResponseField name="assessments" type="number">
+      Number of assessments on this day
+    </ResponseField>
+    <ResponseField name="avgDelta" type="number">
+      Average mastery change per assessment
+    </ResponseField>
+    <ResponseField name="cumulativeDelta" type="number">
+      Cumulative mastery change since first assessment
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Source**: `src/api/routes/analytics.ts:69-108`
+
+---
+
+### Get Learning Velocity
+
+Calculate learning velocity over rolling time windows (7d, 30d, 90d).
+
+<CodeGroup>
+```bash cURL
+curl https://api.entendi.dev/api/analytics/velocity \
+  -H "x-api-key: <your-api-key>"
+```
+
+```javascript JavaScript
+const response = await fetch(
+  'https://api.entendi.dev/api/analytics/velocity',
+  {
+    headers: { 'x-api-key': '<your-api-key>' }
+  }
+);
+const data = await response.json();
+```
+</CodeGroup>
+
+#### Response
+
+<ResponseField name="velocity" type="object">
+  Velocity metrics for each time window
+  
+  <Expandable title="window keys: 7d, 30d, 90d">
+    <ResponseField name="assessments" type="number">
+      Total assessments in window
+    </ResponseField>
+    <ResponseField name="avgDelta" type="number">
+      Average mastery change per assessment
+    </ResponseField>
+    <ResponseField name="conceptsAssessed" type="number">
+      Unique concepts assessed in window
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="snapshots" type="array">
+  Daily snapshots in chronological order (up to 90 days)
+  
+  <Expandable title="snapshot object">
+    <ResponseField name="date" type="string">
+      Date in YYYY-MM-DD format
+    </ResponseField>
+    <ResponseField name="assessmentCount" type="number">
+      Assessments on this day
+    </ResponseField>
+    <ResponseField name="avgMasteryDelta" type="number">
+      Average mastery change
+    </ResponseField>
+    <ResponseField name="conceptsAssessed" type="number">
+      Unique concepts assessed
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Source**: `src/api/routes/analytics.ts:111-138`
+
+---
+
+### Get Activity Heatmap
+
+Retrieve daily assessment activity for calendar heatmap visualization.
+
+<CodeGroup>
+```bash cURL
+curl "https://api.entendi.dev/api/analytics/activity-heatmap?days=365" \
+  -H "x-api-key: <your-api-key>"
+```
+
+```javascript JavaScript
+const response = await fetch(
+  'https://api.entendi.dev/api/analytics/activity-heatmap?days=365',
+  {
+    headers: { 'x-api-key': '<your-api-key>' }
+  }
+);
+const data = await response.json();
+```
+</CodeGroup>
+
+#### Query Parameters
+
+<ParamField query="days" type="number" default="365">
+  Number of days to retrieve (from today backwards)
+</ParamField>
+
+#### Response
+
+<ResponseField name="heatmap" type="array">
+  Daily activity sorted chronologically
+  
+  <Expandable title="day object">
+    <ResponseField name="date" type="string">
+      Date in YYYY-MM-DD format
+    </ResponseField>
+    <ResponseField name="assessmentCount" type="number">
+      Total assessments
+    </ResponseField>
+    <ResponseField name="conceptsAssessed" type="number">
+      Unique concepts assessed
+    </ResponseField>
+    <ResponseField name="avgMasteryDelta" type="number">
+      Average mastery change
+    </ResponseField>
+    <ResponseField name="domains" type="array | null">
+      List of domains assessed (if tracked)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Source**: `src/api/routes/analytics.ts:141-161`
+
+---
+
+### Get Concept Profile
+
+Retrieve comprehensive profile for a concept including mastery, analytics, timeline, tutor sessions, and prerequisites.
+
+<CodeGroup>
+```bash cURL
+curl https://api.entendi.dev/api/analytics/concept/:conceptId \
+  -H "x-api-key: <your-api-key>"
+```
+
+```javascript JavaScript
+const response = await fetch(
+  `https://api.entendi.dev/api/analytics/concept/${conceptId}`,
+  {
+    headers: { 'x-api-key': '<your-api-key>' }
+  }
+);
+const data = await response.json();
+```
+</CodeGroup>
+
+#### Path Parameters
+
+<ParamField path="conceptId" type="string" required>
+  Concept identifier
+</ParamField>
+
+#### Response
+
+<ResponseField name="concept" type="object">
+  Concept metadata
+  
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">
+      Concept ID
+    </ResponseField>
+    <ResponseField name="domain" type="string">
+      Domain (e.g., "react", "typescript")
+    </ResponseField>
+    <ResponseField name="specificity" type="string">
+      Specificity level: "domain", "topic", "technique"
+    </ResponseField>
+    <ResponseField name="description" type="string | null">
+      Human-readable description
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="mastery" type="object | null">
+  Current mastery range (lower, estimate, upper) or null if never assessed
+</ResponseField>
+
+<ResponseField name="analytics" type="object | null">
+  Aggregated analytics
+  
+  <Expandable title="properties">
+    <ResponseField name="assessmentCount" type="number">
+      Total assessments
+    </ResponseField>
+    <ResponseField name="lastAssessed" type="string">
+      ISO timestamp of last assessment
+    </ResponseField>
+    <ResponseField name="avgRubricScore" type="number">
+      Average rubric score (0-3)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="timeline" type="array">
+  Mixed timeline of assessment and dismissal events (up to 200)
+  
+  <Expandable title="assessment event">
+    <ResponseField name="type" type="'assessment'">
+      Event type
+    </ResponseField>
+    <ResponseField name="eventId" type="string">
+      Event ID
+    </ResponseField>
+    <ResponseField name="timestamp" type="string">
+      ISO timestamp
+    </ResponseField>
+    <ResponseField name="mastery" type="object">
+      Mastery range at this point
+    </ResponseField>
+    <ResponseField name="eventType" type="string">
+      "probe", "tutor_phase1", "tutor_phase4", "implicit"
+    </ResponseField>
+    <ResponseField name="rubricScore" type="number">
+      0-3 score
+    </ResponseField>
+    <ResponseField name="integrityScore" type="number | null">
+      Confidence in assessment (0-1)
+    </ResponseField>
+    <ResponseField name="responseText" type="string | null">
+      User's response text
+    </ResponseField>
+  </Expandable>
+  
+  <Expandable title="dismissal event">
+    <ResponseField name="type" type="'dismissal'">
+      Event type
+    </ResponseField>
+    <ResponseField name="eventId" type="string">
+      Event ID
+    </ResponseField>
+    <ResponseField name="timestamp" type="string">
+      ISO timestamp
+    </ResponseField>
+    <ResponseField name="reason" type="string">
+      Dismissal reason
+    </ResponseField>
+    <ResponseField name="note" type="string | null">
+      User note
+    </ResponseField>
+    <ResponseField name="requeued" type="boolean">
+      Whether concept was requeued
+    </ResponseField>
+    <ResponseField name="resolvedAs" type="string | null">
+      Resolution status
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="tutorSessions" type="array">
+  Tutor session history (most recent first)
+</ResponseField>
+
+<ResponseField name="dismissals" type="array">
+  Dismissal events (most recent first)
+</ResponseField>
+
+<ResponseField name="prerequisites" type="array">
+  Prerequisite concepts with current mastery
+  
+  <Expandable title="prerequisite object">
+    <ResponseField name="conceptId" type="string">
+      Prerequisite concept ID
+    </ResponseField>
+    <ResponseField name="mastery" type="object | null">
+      Current mastery range or null if never assessed
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Error responses**:
+- `404 Not Found` - Concept does not exist
+
+**Source**: `src/api/routes/analytics.ts:164-245`
+
+## Mastery Range Format
+
+All mastery values use a confidence interval representation:
+
+```json
+{
+  "lower": 0.42,
+  "estimate": 0.63,
+  "upper": 0.81
+}
+```
+
+- **estimate**: Point estimate of mastery (sigmoid of μ)
+- **lower/upper**: 95% confidence interval bounds
+- **Scale**: 0-1 (0% to 100% mastery)
+
+**Source**: `src/core/mastery-display.js`

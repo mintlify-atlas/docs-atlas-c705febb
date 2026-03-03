@@ -1,0 +1,316 @@
+---
+title: 'tutor'
+description: 'Start and advance through 4-phase tutor sessions'
+---
+
+## Overview
+
+The tutor tools implement a structured 4-phase teaching protocol:
+1. **Phase 1**: Diagnostic assessment (scored)
+2. **Phase 2**: Guided teaching
+3. **Phase 3**: Misconception correction
+4. **Phase 4**: Final assessment (scored)
+
+Tutor sessions isolate the causal effect of teaching via counterfactual tracking — tutored assessments receive 50% weight compared to organic probes.
+
+## Start Tutor
+
+### Endpoint
+
+```
+POST /api/mcp/tutor/start
+```
+
+### Request Body
+
+<ParamField body="conceptId" type="string" required>
+  Concept to teach (1-200 chars). Will be normalized.
+</ParamField>
+
+<ParamField body="triggerScore" type="integer">
+  Probe score that triggered the tutor offer (`0` or `1`). Optional — can be `null` for manually-initiated tutoring.
+</ParamField>
+
+### Response
+
+<ResponseField name="sessionId" type="string" required>
+  UUID for this tutor session. Pass to `advance` endpoint.
+</ResponseField>
+
+<ResponseField name="phase" type="string" required>
+  Current phase: always `"phase1"` after start
+</ResponseField>
+
+<ResponseField name="guidance" type="string" required>
+  Phase-specific guidance for Claude on what to ask
+</ResponseField>
+
+<ResponseField name="prerequisiteSuggestion" type="string">
+  Warning if prerequisites are unmastered (e.g., "Consider teaching X first — these prerequisites are not yet mastered.")
+</ResponseField>
+
+### Example Request
+
+```json
+{
+  "conceptId": "react/useEffect",
+  "triggerScore": 1
+}
+```
+
+### Example Response
+
+```json
+{
+  "sessionId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "phase": "phase1",
+  "guidance": "Assess what the user already knows about react/useEffect. Ask an open-ended question about their understanding.",
+  "prerequisiteSuggestion": "Consider teaching react/useState first — these prerequisites are not yet mastered."
+}
+```
+
+## Advance Tutor
+
+### Endpoint
+
+```
+POST /api/mcp/tutor/advance
+```
+
+### Request Body
+
+<ParamField body="sessionId" type="string" required>
+  UUID from `start` response
+</ParamField>
+
+<ParamField body="userResponse" type="string" required>
+  User's response to current phase question (1-5000 chars)
+</ParamField>
+
+<ParamField body="score" type="integer">
+  Rubric score (0-3). **Required for phases 1 and 4 only.**
+</ParamField>
+
+<ParamField body="confidence" type="number">
+  Evaluator confidence (0-1). Optional, defaults to 0.5 for tutor phases.
+</ParamField>
+
+<ParamField body="reasoning" type="string">
+  Evaluation reasoning (max 2000 chars). Optional.
+</ParamField>
+
+<ParamField body="misconception" type="string">
+  Detected misconception (max 1000 chars). Stored and addressed in phase 3.
+</ParamField>
+
+### Response
+
+<ResponseField name="phase" type="string" required>
+  Next phase: `"phase2"`, `"phase3"`, `"phase4"`, or `"complete"`
+</ResponseField>
+
+<ResponseField name="isComplete" type="boolean" required>
+  `true` if session is complete, `false` otherwise
+</ResponseField>
+
+<ResponseField name="guidance" type="string">
+  Phase-specific guidance for next phase (omitted if complete)
+</ResponseField>
+
+<ResponseField name="masteryUpdate" type="object">
+  Mastery change (only present for scored phases 1 and 4)
+  
+  <Expandable title="masteryUpdate object">
+    <ResponseField name="before" type="number">
+      Mastery before update (0-1)
+    </ResponseField>
+    <ResponseField name="after" type="number">
+      Mastery after update (0-1)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="sessionSummary" type="string">
+  Summary of completed session (only if `isComplete=true`)
+</ResponseField>
+
+<ResponseField name="integrityScore" type="number">
+  Response integrity score (0-1). Only present for scored phases.
+</ResponseField>
+
+<ResponseField name="integrityFlags" type="array">
+  Integrity warning flags (e.g., `["suspicious_typing_speed"]`)
+</ResponseField>
+
+### Example Request (Phase 1 → 2)
+
+```json
+{
+  "sessionId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "userResponse": "useEffect runs after every render by default. You can pass a dependency array to control when it runs.",
+  "score": 1,
+  "confidence": 0.7,
+  "reasoning": "User understands the basics but didn't mention cleanup functions or the exhaustive-deps rule.",
+  "misconception": "Thinks useEffect always runs after render, but doesn't realize it can be skipped."
+}
+```
+
+### Example Response (Phase 1 → 2)
+
+```json
+{
+  "phase": "phase2",
+  "isComplete": false,
+  "guidance": "Guide them toward deeper understanding of react/useEffect. Identify gaps from their phase1 answer.",
+  "masteryUpdate": {
+    "before": 0.38,
+    "after": 0.42
+  },
+  "integrityScore": 0.91
+}
+```
+
+### Example Request (Phase 4 → Complete)
+
+```json
+{
+  "sessionId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "userResponse": "useEffect is a hook that runs side effects after render. The dependency array controls when it re-runs. If you return a function, it's called on unmount for cleanup. Empty array means it only runs once on mount.",
+  "score": 3,
+  "confidence": 0.95,
+  "reasoning": "User now demonstrates complete understanding including cleanup and dependency rules."
+}
+```
+
+### Example Response (Complete)
+
+```json
+{
+  "phase": "complete",
+  "isComplete": true,
+  "sessionSummary": "Tutor session for react/useEffect complete. Phase 1 score: 1/3, Phase 4 score: 3/3. Mastery changed from 42.0% to 78.5%.",
+  "masteryUpdate": {
+    "before": 0.42,
+    "after": 0.785
+  },
+  "integrityScore": 0.94
+}
+```
+
+## Implementation Details
+
+### Phase Progression
+
+Phases advance linearly:
+
+```
+offered → phase1 → phase2 → phase3 → phase4 → complete
+```
+
+The session advances automatically after each `advance` call.
+
+Source: `src/api/routes/mcp.ts:768-771`.
+
+### Phase-Specific Guidance
+
+Guidance is generated based on phase and stored misconceptions:
+
+- **Phase 1**: "Assess what the user already knows about {concept}. Ask an open-ended question about their understanding."
+- **Phase 2**: "Guide them toward deeper understanding of {concept}. Identify gaps from their phase1 answer."
+- **Phase 3**: "Address the misconception: '{misconception}'. Help the user correct their understanding of {concept}." (or generic guidance if no misconception)
+- **Phase 4**: "Ask for a comprehensive explanation of {concept}. This is the final assessment."
+
+Source: `src/api/routes/mcp.ts:804-811`.
+
+### Prerequisite Checking (ZPD)
+
+On session start, the system queries all `requires` edges and checks if prerequisites have `mastery < 0.7`. If any are unmastered, `prerequisiteSuggestion` is returned.
+
+This implements the Zone of Proximal Development principle — teaching should target concepts whose prerequisites are mastered.
+
+Source: `src/api/routes/mcp.ts:618-634`.
+
+### Scored Phases
+
+Only **phases 1 and 4** are scored:
+- **Phase 1**: Diagnostic assessment (baseline)
+- **Phase 4**: Final assessment (outcome)
+
+Phases 2 and 3 are teaching phases — no score or mastery update.
+
+Source: `src/api/routes/mcp.ts:686-761`.
+
+### Counterfactual Tracking
+
+Tutor assessments are marked `eventType: 'tutor_phase1' | 'tutor_phase4'` and receive 50% evidence weight:
+
+```typescript
+if (isTutored) {
+  newMu = currentMu + 0.5 * (updated.mu - currentMu);
+  newSigma = currentSigma + 0.5 * (updated.sigma - currentSigma);
+  newTutoredCount += 1;
+} else {
+  newMu = updated.mu;
+  newSigma = updated.sigma;
+  newMuUntutored = updated.mu;
+  newUntutoredCount += 1;
+}
+```
+
+This allows the system to track:
+- **muUntutored**: Mastery estimate from untutored assessments only
+- **tutoredCount** vs **untutoredCount**: Sample sizes for causal analysis
+
+Source: `src/api/routes/mcp.ts:1263-1281` in `applyBayesianUpdateDb`.
+
+### Response Integrity
+
+For scored phases (1 and 4), response integrity is analyzed identically to probe evaluations:
+- Extract features (typing speed, formatting, vocab)
+- Compare to user baseline
+- Compute integrity score
+- Dampen mastery update if suspicious
+
+Source: `src/api/routes/mcp.ts:688-740`.
+
+### Session Storage
+
+Tutor sessions are stored in the `tutor_sessions` table:
+- `id`: UUID session ID
+- `userId`: Owner
+- `conceptId`: Concept being taught
+- `phase`: Current phase
+- `triggerScore`: Probe score that triggered (if any)
+- `phase1Score`, `phase4Score`: Scores from diagnostic and final
+- `lastMisconception`: Most recent detected misconception
+- `lastActivityAt`: Updated on each advance
+
+Exchanges are stored in `tutor_exchanges`:
+- `sessionId`: Foreign key
+- `phase`: Phase this exchange occurred in
+- `question`: Question asked (empty for now — guidance is passed separately)
+- `response`: User's response text
+
+Source: `src/api/db/schema.ts:tutorSessions`, `tutorExchanges`.
+
+### Pending Actions
+
+While a tutor session is active, a `tutor_active` pending action is maintained:
+
+```json
+{
+  "type": "tutor_active",
+  "sessionId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "conceptId": "react/useEffect",
+  "phase": "phase2"
+}
+```
+
+This allows hooks to detect active sessions and prevent new probes.
+
+Source: `src/api/routes/mcp.ts:813-824`.
+
+## Related
+
+- [record-evaluation](/api/mcp/record-evaluation) — Records probe evaluations that may trigger tutor
+- [observe](/api/mcp/observe) — Generates probes that may lead to tutor offer

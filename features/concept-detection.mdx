@@ -1,0 +1,158 @@
+---
+title: Concept Detection
+description: How Entendi automatically identifies the technical concepts you're working with
+icon: sparkles
+---
+
+Entendi watches your coding activity and automatically detects which technical concepts you're using. This happens continuously in the background—no manual tagging required.
+
+## How It Works
+
+Concept detection combines two complementary approaches:
+
+### LLM-Based Detection
+
+When you interact with Claude Code, Entendi analyzes your prompts and code context to extract:
+
+- **Concept names** like `redis-caching`, `react-hooks`, or `async-programming`
+- **Technical domains** (databases, frontend, devops, etc.)
+- **Your intent** (building, debugging, learning, refactoring)
+- **Your familiarity level** (novice, intermediate, expert)
+
+The LLM looks for evidence in your actual words and code. For example:
+
+<CodeGroup>
+```typescript Example Prompt
+// You: "Help me add Redis caching to this API endpoint"
+// Entendi detects:
+// - redis-caching (technique)
+// - api-design (topic)
+// - performance-optimization (topic)
+```
+</CodeGroup>
+
+### AST-Based Detection
+
+When you're working with code files, Entendi parses the abstract syntax tree to identify programming patterns:
+
+- **async/await** → async-programming
+- **type parameters** → generics
+- **try/catch blocks** → error-handling
+- **class declarations** → oop
+- **destructuring** → destructuring
+- **decorators** → decorators-metaprogramming
+
+This works for TypeScript, JavaScript, and Python files.
+
+<CodeGroup>
+```typescript Detected Patterns
+async function fetchUser() {  // ← async-programming detected
+  try {                        // ← error-handling detected
+    const { id, name } = await getUser();  // ← destructuring detected
+  } catch (err) {
+    // ...
+  }
+}
+```
+</CodeGroup>
+
+## Concept Specificity
+
+Every detected concept is classified by specificity:
+
+<Steps>
+  <Step title="Domain">
+    Broad technical area (e.g., "databases", "frontend")
+  </Step>
+  <Step title="Topic">
+    Mid-level concept within a domain (e.g., "caching", "state-management")
+  </Step>
+  <Step title="Technique">
+    Specific implementation pattern (e.g., "redis-caching", "react-hooks")
+  </Step>
+</Steps>
+
+## Novelty Classification
+
+Once a concept is detected, Entendi classifies how familiar you are with it:
+
+<Card title="Novel" icon="star">
+  You've never been assessed on this concept, or you've forgotten it. These concepts trigger probes.
+</Card>
+
+<Card title="Adjacent" icon="compass">
+  You have some understanding but haven't mastered it yet. May trigger probes depending on context.
+</Card>
+
+<Card title="Routine" icon="check">
+  You've demonstrated mastery and still remember it well. No probing needed.
+</Card>
+
+<Card title="Critical" icon="shield">
+  Security-related concepts are always treated as critical, regardless of mastery. These always trigger probes.
+</Card>
+
+## Context Awareness
+
+Detection uses surrounding context to improve accuracy:
+
+- **File context**: What file are you editing?
+- **Project context**: What type of project is this?
+- **Conversation history**: What have you been discussing?
+
+This helps disambiguate terms (e.g., "hooks" in React vs. Git hooks) and surface the most relevant concepts.
+
+## What Happens Next
+
+When Entendi detects a novel or critical concept:
+
+1. It checks your [knowledge graph](/features/knowledge-graph) to see if you've been assessed before
+2. If the concept is new or forgotten, it triggers the [probe system](/features/probe-system)
+3. Your response updates your [Bayesian mastery estimate](/features/bayesian-mastery)
+4. If you struggle, the [Socratic tutor](/features/socratic-tutor) offers a learning dialogue
+
+<Note>
+Concept detection happens automatically through the Claude Code plugin. You don't need to configure anything.
+</Note>
+
+## Example Detection Flow
+
+<Steps>
+  <Step title="You write code">
+    ```typescript
+    @decorator
+    class MyService {}
+    ```
+    AST detects `decorators-metaprogramming`
+  </Step>
+  
+  <Step title="Entendi checks your history">
+    You've never been assessed on decorators → classified as **novel**
+  </Step>
+  
+  <Step title="Probe triggered">
+    Claude asks: "Why did you choose to use a decorator here instead of a plain function?"
+  </Step>
+  
+  <Step title="You respond">
+    Your answer is evaluated using the [probe system](/features/probe-system)
+  </Step>
+  
+  <Step title="Mastery updated">
+    Your [Bayesian mastery estimate](/features/bayesian-mastery) is updated based on your response
+  </Step>
+</Steps>
+
+## Supported Languages
+
+AST-based detection currently supports:
+
+- TypeScript
+- JavaScript
+- Python
+
+LLM-based detection works with any text-based interaction, regardless of language.
+
+<Tip>
+The more context you provide in your prompts, the more accurate concept detection becomes. Instead of "fix this", try "help me fix this Redis cache invalidation issue".
+</Tip>

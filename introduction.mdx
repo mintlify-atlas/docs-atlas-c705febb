@@ -1,0 +1,130 @@
+---
+title: "Welcome to Entendi"
+description: "Comprehension accountability for AI-assisted work"
+---
+
+## What is Entendi?
+
+> *"entendí"* means "I understood" in Italian and Spanish, from *intendere*.
+
+Entendi ensures you understand what you ship. It's a Claude Code plugin that watches your coding sessions, identifies technical concepts, and verifies your comprehension through probing questions and Socratic tutoring.
+
+**The problem**: Software engineering with LLMs moves faster than humans learn. Code assistants generate abstractions, design patterns, and infrastructure in seconds. Work that used to take days of learning now takes one prompt. Junior developers ship patterns they can't debug. Researchers use statistical methods they can't explain.
+
+**The solution**: Make sure the human keeps up. Entendi finishes your request first, then asks. If you know the material, it leaves you alone. If you don't, it teaches you.
+
+## Get Started
+
+<CardGroup cols={2}>
+  <Card
+    title="Quickstart"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Install the plugin and link your account in under 2 minutes.
+  </Card>
+  <Card
+    title="Installation"
+    icon="download"
+    href="/installation"
+  >
+    Complete installation guide for all package managers.
+  </Card>
+  <Card
+    title="Dashboard"
+    icon="chart-line"
+    href="https://entendi.dev"
+  >
+    View your knowledge profile and track mastery over time.
+  </Card>
+  <Card
+    title="GitHub"
+    icon="github"
+    href="https://github.com/LemonThyme/entendi"
+  >
+    Explore the source code and contribute.
+  </Card>
+</CardGroup>
+
+## How it works
+
+Entendi runs as a Claude Code plugin using the Model Context Protocol (MCP). Here's what happens during your session:
+
+```
+You: "deploy to Cloudflare Workers"
+
+Claude: [completes the deployment]
+        "By the way, Workers run on V8 isolates, not containers.
+         How does that affect what Node APIs you can use?"
+
+You: "I'm not sure"
+
+Claude: [offers a Socratic tutor session]
+        "Let's work through it. What runtime does Node.js normally use,
+         and why would V8 isolates be different?"
+```
+
+### The Pipeline
+
+<Steps>
+  <Step title="Detect">
+    LLM-level concept detection identifies technical concepts from your conversation and code.
+  </Step>
+  <Step title="Decide">
+    Bayesian mastery tracking decides if a probe makes sense given your knowledge profile.
+  </Step>
+  <Step title="Probe">
+    A question gets woven in naturally, scored on a 0-3 comprehension rubric.
+  </Step>
+  <Step title="Teach">
+    Low scores trigger a 4-phase Socratic tutor (assess, guide, correct, verify).
+  </Step>
+  <Step title="Track">
+    Mastery updates go through a Graded Response Model with spaced repetition scheduling.
+  </Step>
+</Steps>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Non-Intrusive" icon="eye-slash">
+    Probes are woven naturally after Claude completes your request. If you demonstrate mastery, you won't be interrupted.
+  </Card>
+  <Card title="Bayesian Mastery Tracking" icon="brain">
+    Uses Item Response Theory and the Graded Response Model to maintain a probabilistic mastery estimate for each concept.
+  </Card>
+  <Card title="Knowledge Graph" icon="diagram-project">
+    Tracks prerequisite relationships between concepts and computes your Zone of Proximal Development frontier.
+  </Card>
+  <Card title="Socratic Tutoring" icon="comments">
+    When gaps are detected, guided learning through questions rather than direct answers.
+  </Card>
+</CardGroup>
+
+## Tech Stack
+
+Entendi is built with modern tools designed for reliability and performance:
+
+- **Plugin**: TypeScript, Node 22+, MCP (Model Context Protocol)
+- **Backend**: Hono on Cloudflare Workers
+- **Database**: Drizzle ORM + Neon PostgreSQL
+- **Auth**: Better Auth (email/password, API keys, organizations)
+- **Testing**: Vitest with comprehensive coverage
+
+<Note>
+  All hooks, MCP tools, and API calls log to `~/.entendi/debug.log` for debugging.
+</Note>
+
+## Next Steps
+
+<Steps>
+  <Step title="Install the plugin">
+    Follow the [installation guide](/installation) to add Entendi to Claude Code.
+  </Step>
+  <Step title="Link your account">
+    Complete the [quickstart](/quickstart) to authenticate and start tracking.
+  </Step>
+  <Step title="View your progress">
+    Check your [dashboard](https://entendi.dev) to see mastery metrics and learning activity.
+  </Step>
+</Steps>

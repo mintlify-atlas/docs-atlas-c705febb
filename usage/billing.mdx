@@ -1,0 +1,364 @@
+---
+title: Billing & Subscriptions
+description: Understand Entendi's pricing plans and Stripe integration
+---
+
+## Overview
+
+Entendi uses Stripe for subscription management. Payment processing is secure, PCI-compliant, and supports multiple payment methods.
+
+## Plan Tiers
+
+From `src/api/routes/billing.ts:16-20` and `src/api/lib/stripe.ts:37-40`:
+
+### Free
+
+- Individual use
+- Unlimited concepts and assessments
+- Basic analytics
+- No organization features
+- No billing required
+
+### Pro
+
+- All Free features
+- Advanced analytics
+- Priority support
+- Custom integrations
+- Monthly or annual billing
+
+**Price**: Configured via `STRIPE_PRO_PRICE_ID` environment variable
+
+### Team
+
+- All Pro features
+- Organization management
+- Member tracking and analytics
+- Role-based access control
+- Integrity monitoring
+- Enforcement policies
+- Codebase and syllabus management
+- Seat-based pricing (minimum 5 seats)
+
+**Price**: Configured via `STRIPE_TEAM_PRICE_ID` environment variable
+
+**Seat Count**: Adjustable at checkout (default: 5)
+
+## Checkout Flow
+
+From `src/api/routes/billing.ts:10-38`:
+
+### Initiating Checkout
+
+1. Navigate to dashboard Settings → Billing
+2. Select plan (Pro or Team)
+3. For Team: choose seat count
+4. Click "Subscribe"
+
+**API Call**: `POST /api/billing/checkout`
+
+```json
+{
+  "plan": "team",
+  "seatCount": 10,
+  "organizationId": "org_123"
+}
+```
+
+**Response**:
+
+```json
+{
+  "url": "https://checkout.stripe.com/...",
+  "sessionId": "cs_test_..."
+}
+```
+
+### Stripe Checkout
+
+From `src/api/lib/stripe.ts:42-68`:
+
+1. Redirected to Stripe-hosted checkout page
+2. Enter payment details (Stripe handles PCI compliance)
+3. Confirm subscription
+4. Redirected to success URL: `entendi.dev/?billing=success`
+
+**Metadata Stored**:
+- `userId`: Your Entendi user ID
+- `plan`: Selected plan tier
+- `organizationId`: For team subscriptions
+
+### Post-Checkout
+
+From `src/api/routes/billing.ts:87-117`:
+
+1. Stripe webhook triggers `checkout.session.completed`
+2. Subscription record created in database
+3. Confirmation email sent via Resend
+4. Subscription activated immediately
+
+**Database Record** (from `src/api/routes/billing.ts:96-106`):
+
+```typescript
+{
+  id: `sub_${timestamp}_${random}`,
+  userId: 'user_123',
+  organizationId: 'org_456', // for team plans
+  stripeCustomerId: 'cus_...',
+  stripeSubscriptionId: 'sub_...',
+  plan: 'team',
+  status: 'active',
+  currentPeriodEnd: Date + 30 days,
+  seatCount: 10 // for team plans
+}
+```
+
+## Subscription Management
+
+### Viewing Subscription
+
+**GET /api/billing/subscription** returns:
+
+```json
+{
+  "plan": "team",
+  "status": "active",
+  "currentPeriodEnd": "2026-04-03T00:00:00Z",
+  "seatCount": 10,
+  "earnedFreeUntil": null
+}
+```
+
+From `src/api/routes/billing.ts:40-63`.
+
+**Status Values**:
+- `active`: Subscription is current
+- `cancelled`: User cancelled, access until period end
+- `expired`: Period ended without renewal
+
+### Earned Free Access
+
+**earnedFreeUntil** field supports:
+- Open-source contributor rewards
+- Educational institution grants
+- Beta tester lifetime access
+- Custom promotional periods
+
+When set, plan features remain active until this date regardless of payment status.
+
+## Webhook Events
+
+From `src/api/routes/billing.ts:65-146`:
+
+Stripe sends webhooks to `POST /api/billing/webhook` with signature verification.
+
+### Supported Events
+
+#### checkout.session.completed
+
+**Trigger**: User completes payment
+
+**Actions**:
+1. Create subscription record
+2. Set status to `active`
+3. Calculate `currentPeriodEnd` (30 days from now)
+4. Send confirmation email
+
+#### customer.subscription.deleted
+
+**Trigger**: Subscription cancelled in Stripe
+
+**Actions** (from `src/api/routes/billing.ts:120-127`):
+1. Update status to `cancelled`
+2. Update `updatedAt` timestamp
+3. User retains access until `currentPeriodEnd`
+
+#### invoice.paid
+
+**Trigger**: Successful payment for renewal
+
+**Actions** (from `src/api/routes/billing.ts:129-142`):
+1. Update status to `active` (if was cancelled)
+2. Extend `currentPeriodEnd` to next billing cycle
+3. Update `updatedAt` timestamp
+
+### Webhook Security
+
+From `src/api/lib/stripe.ts:70-81`:
+
+- Signature verified using `STRIPE_WEBHOOK_SECRET`
+- Invalid signatures return 400 error
+- Events are idempotent (replay-safe)
+
+## Cancellation
+
+### How to Cancel
+
+1. Navigate to dashboard Settings → Billing
+2. Click "Manage Subscription" (redirects to Stripe portal)
+3. Select "Cancel Subscription"
+4. Choose immediate or end-of-period cancellation
+
+### What Happens
+
+- **Immediate**: Access ends now, no refund
+- **End-of-period**: Access continues until `currentPeriodEnd`, no renewal
+
+**Database Update**: Status changes to `cancelled` via webhook
+
+### Data Retention
+
+- Subscription record retained for billing history
+- Learning data preserved (not deleted on cancellation)
+- Downgrade to Free plan features
+- Organization data remains accessible to owner
+
+## Upgrades & Downgrades
+
+### Upgrading
+
+From Free → Pro or Pro → Team:
+
+1. Initiate checkout with new plan
+2. Prorated amount charged immediately
+3. New features activate on payment
+
+### Downgrading
+
+From Team → Pro or Pro → Free:
+
+1. Cancel current subscription
+2. Subscribe to lower tier (or no subscription for Free)
+3. Downgrade takes effect at period end
+4. Organization features locked on Team → Pro transition
+
+### Seat Changes (Team Plan)
+
+To modify seat count:
+
+1. Access Stripe customer portal
+2. Update quantity for Team subscription
+3. Prorated charge/credit applied
+4. New seat count reflected in `seatCount` field
+
+## Email Notifications
+
+From `src/api/routes/billing.ts:109-116`:
+
+Confirmation email sent via Resend after checkout:
+
+```typescript
+await sendEmail({
+  to: userEmail,
+  template: EmailTemplate.SubscriptionConfirmed,
+  vars: { plan: 'Team' }
+});
+```
+
+**Templates**:
+- `SubscriptionConfirmed`: Sent after successful checkout
+- Renewal reminders (if configured)
+- Payment failure alerts (via Stripe settings)
+
+## Configuration
+
+From `.env.example:15-17`:
+
+### Required Environment Variables
+
+```bash
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+```
+
+### Optional Variables
+
+```bash
+STRIPE_PRO_PRICE_ID=price_...
+STRIPE_TEAM_PRICE_ID=price_...
+```
+
+If not set, uses placeholder price IDs (for development).
+
+### Webhook Endpoint
+
+Configure in Stripe dashboard:
+
+**URL**: `https://api.entendi.dev/api/billing/webhook`
+
+**Events**:
+- `checkout.session.completed`
+- `customer.subscription.deleted`
+- `invoice.paid`
+
+## Troubleshooting
+
+### "Stripe is not configured" (503)
+
+- Missing `STRIPE_SECRET_KEY` environment variable
+- Contact admin to enable billing
+
+### "Webhook signature verification failed" (400)
+
+- Stripe webhook secret mismatch
+- Check `STRIPE_WEBHOOK_SECRET` matches dashboard
+- Verify webhook is sent to correct endpoint
+
+### Subscription Not Activating
+
+1. Check webhook logs in Stripe dashboard
+2. Verify webhook endpoint is reachable
+3. Look for errors in API logs
+4. Confirm `checkout.session.completed` event received
+
+### Payment Declined
+
+- Stripe handles retry logic (3 attempts over 2 weeks)
+- User receives email from Stripe
+- Update payment method in customer portal
+- Subscription status becomes `past_due` if not resolved
+
+## API Reference
+
+### Create Checkout Session
+
+```http
+POST /api/billing/checkout
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "plan": "pro",
+  "organizationId": "org_123",
+  "seatCount": 5
+}
+```
+
+### Get Current Subscription
+
+```http
+GET /api/billing/subscription
+Authorization: Bearer <token>
+```
+
+### Webhook Handler
+
+```http
+POST /api/billing/webhook
+Stripe-Signature: <signature>
+Content-Type: application/json
+
+{ /* Stripe event payload */ }
+```
+
+## Self-Hosting
+
+If self-hosting Entendi:
+
+1. Create Stripe account
+2. Configure products and pricing
+3. Set environment variables
+4. Configure webhook endpoint
+5. Test with Stripe CLI: `stripe listen --forward-to localhost:3456/api/billing/webhook`
+
+See the [Development Setup](/development/setup) guide for full configuration.

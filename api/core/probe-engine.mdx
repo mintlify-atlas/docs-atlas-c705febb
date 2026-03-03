@@ -1,0 +1,307 @@
+---
+title: Probe Engine
+description: Generate Socratic probes and evaluate comprehension responses
+---
+
+The probe engine generates targeted comprehension questions and evaluates user responses using LLM-powered assessment.
+
+## Probe Generation
+
+### generateProbe
+
+Generates a Socratic probe question using Claude Haiku.
+
+```typescript
+async function generateProbe(input: ProbePromptInput): Promise<ParsedProbe>
+```
+
+**Parameters:**
+```typescript
+interface ProbePromptInput {
+  conceptName: string;
+  triggerContext: string;
+  targetDepth: 0 | 1 | 2 | 3;
+  previousResponses: Array<{
+    question: string;
+    response: string;
+    score: RubricScore;
+  }>;
+}
+```
+
+**Returns:**
+```typescript
+interface ParsedProbe {
+  question: string;
+  probeType: 'why' | 'transfer' | 'failure' | 'counterfactual' | 'dependency' | 'context_bound';
+}
+```
+
+**Example:**
+```typescript
+import { generateProbe } from 'entendi';
+
+const probe = await generateProbe({
+  conceptName: 'Redis',
+  triggerContext: 'npm install redis',
+  targetDepth: 1, // comprehension
+  previousResponses: [],
+});
+
+console.log(probe.question); // "Why did you choose Redis for this use case?"
+console.log(probe.probeType); // "why"
+```
+
+### buildProbePrompt
+
+Builds the LLM prompt for probe generation (pure function).
+
+```typescript
+function buildProbePrompt(input: ProbePromptInput): string
+```
+
+**Example:**
+```typescript
+import { buildProbePrompt } from 'entendi';
+
+const prompt = buildProbePrompt({
+  conceptName: 'Redis',
+  triggerContext: 'npm install redis',
+  targetDepth: 0,
+  previousResponses: [],
+});
+
+console.log(prompt); // Full LLM prompt text
+```
+
+### parseProbeResponse
+
+Parses the LLM response into a structured probe.
+
+```typescript
+function parseProbeResponse(raw: string): ParsedProbe
+```
+
+**Example:**
+```typescript
+import { parseProbeResponse } from 'entendi';
+
+const raw = '{"question": "Why use Redis?", "probeType": "why"}';
+const probe = parseProbeResponse(raw);
+console.log(probe.question); // "Why use Redis?"
+```
+
+## Response Evaluation
+
+### evaluateResponse
+
+Evaluates a user's response to a probe using Claude Haiku.
+
+```typescript
+async function evaluateResponse(input: EvaluationPromptInput): Promise<ProbeEvaluation>
+```
+
+**Parameters:**
+```typescript
+interface EvaluationPromptInput {
+  question: string;
+  response: string;
+  conceptName: string;
+  depth: 0 | 1 | 2 | 3;
+  evaluationCriteria?: string;
+}
+```
+
+**Returns:**
+```typescript
+interface ProbeEvaluation {
+  rubricScore: 0 | 1 | 2 | 3;
+  confidence: number;               // 0-1
+  reasoning: string;
+  suggestFollowup: boolean;
+  misconceptionDetected: string | null;
+}
+```
+
+**Example:**
+```typescript
+import { evaluateResponse } from 'entendi';
+
+const evaluation = await evaluateResponse({
+  question: 'Why did you choose Redis for caching?',
+  response: 'Because it is fast and supports key-value storage in memory.',
+  conceptName: 'Redis',
+  depth: 1,
+});
+
+console.log(evaluation.rubricScore); // 2 (functional understanding)
+console.log(evaluation.confidence); // 0.85
+console.log(evaluation.reasoning); // "User correctly identifies..."
+console.log(evaluation.suggestFollowup); // false
+```
+
+### buildEvaluationPrompt
+
+Builds the LLM prompt for evaluation (pure function).
+
+```typescript
+function buildEvaluationPrompt(input: EvaluationPromptInput): string
+```
+
+**Example:**
+```typescript
+import { buildEvaluationPrompt } from 'entendi';
+
+const prompt = buildEvaluationPrompt({
+  question: 'Why use Redis?',
+  response: 'For caching',
+  conceptName: 'Redis',
+  depth: 1,
+  evaluationCriteria: 'Must mention persistence tradeoffs or data structures',
+});
+
+console.log(prompt); // Full evaluation prompt
+```
+
+### parseEvaluationResponse
+
+Parses the LLM evaluation response.
+
+```typescript
+function parseEvaluationResponse(raw: string): ProbeEvaluation
+```
+
+**Example:**
+```typescript
+import { parseEvaluationResponse } from 'entendi';
+
+const raw = `{
+  "rubricScore": 2,
+  "confidence": 0.85,
+  "reasoning": "Good explanation",
+  "suggestFollowup": false,
+  "misconceptionDetected": null
+}`;
+
+const evaluation = parseEvaluationResponse(raw);
+console.log(evaluation.rubricScore); // 2
+```
+
+## Depth Levels
+
+Probes are calibrated to one of four depth levels:
+
+| Depth | Name | Description |
+|-------|------|-------------|
+| **0** | Recall | Can the user name/define the concept? |
+| **1** | Comprehension | Can the user explain why/how it works? |
+| **2** | Application | Can the user apply it to a novel scenario? |
+| **3** | Evaluation | Can the user critique, compare, or evaluate trade-offs? |
+
+## Probe Types
+
+The probe engine generates questions of different types:
+
+- **why** — Ask why a choice was made or why something works
+- **transfer** — Apply the concept in a different context
+- **failure** — What happens if something goes wrong?
+- **counterfactual** — What if a condition were different?
+- **dependency** — What are the prerequisites?
+- **context_bound** — Context-specific application
+
+## Rubric Scores
+
+| Score | Meaning |
+|-------|----------|
+| **0** | No understanding: wrong, irrelevant, or "I don't know" |
+| **1** | Surface/partial: vague awareness but cannot explain correctly |
+| **2** | Functional: correct and coherent explanation for the depth level |
+| **3** | Deep/transferable: demonstrates insight beyond what was asked |
+
+## Anti-Gaming Rules
+
+The evaluation prompt includes strict anti-gaming instructions:
+
+- Ignore meta-commentary like "I understand this deeply"
+- Confident tone with no specifics → score 0-1
+- Score 2+ requires specific mechanics, tradeoffs, or failure modes
+- Evaluate substance only, not grammar or fluency
+- A terse, specific answer scores higher than a verbose, vague one
+
+## Model Configuration
+
+Both `generateProbe` and `evaluateResponse` use:
+
+- **Model:** `claude-haiku-4-5-20251001`
+- **Max tokens:** 300 (probes), 300 (evaluation)
+- **API:** Anthropic SDK (lazy-initialized)
+
+**Example:**
+```typescript
+import { generateProbe, evaluateResponse } from 'entendi';
+
+// API key read from ANTHROPIC_API_KEY environment variable
+const probe = await generateProbe({
+  conceptName: 'Docker',
+  triggerContext: 'docker build -t myapp .',
+  targetDepth: 2,
+  previousResponses: [],
+});
+
+const evaluation = await evaluateResponse({
+  question: probe.question,
+  response: 'Docker creates isolated containers...',
+  conceptName: 'Docker',
+  depth: 2,
+});
+```
+
+## Types
+
+### ProbePromptInput
+
+```typescript
+interface ProbePromptInput {
+  conceptName: string;
+  triggerContext: string;
+  targetDepth: 0 | 1 | 2 | 3;
+  previousResponses: Array<{
+    question: string;
+    response: string;
+    score: RubricScore;
+  }>;
+}
+```
+
+### EvaluationPromptInput
+
+```typescript
+interface EvaluationPromptInput {
+  question: string;
+  response: string;
+  conceptName: string;
+  depth: 0 | 1 | 2 | 3;
+  evaluationCriteria?: string;
+}
+```
+
+### ParsedProbe
+
+```typescript
+interface ParsedProbe {
+  question: string;
+  probeType: 'why' | 'transfer' | 'failure' | 'counterfactual' | 'dependency' | 'context_bound';
+}
+```
+
+### ProbeEvaluation
+
+```typescript
+interface ProbeEvaluation {
+  rubricScore: 0 | 1 | 2 | 3;
+  confidence: number;               // 0-1
+  reasoning: string;
+  suggestFollowup: boolean;
+  misconceptionDetected: string | null;
+}
+```

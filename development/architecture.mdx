@@ -1,0 +1,374 @@
+---
+title: Architecture
+description: System architecture and technical design of Entendi
+---
+
+## System Overview
+
+Entendi is a comprehension accountability layer that integrates with Claude Code through a plugin architecture.
+
+```
+Claude Code ──► MCP Server (stdio) ──► HTTP API (Hono) ──► Neon PostgreSQL
+                                         ▲
+Dashboard (browser) ─────────────────────┘
+```
+
+## Components
+
+### Claude Code Plugin
+
+The plugin (`plugin/` directory) provides two integration points:
+
+1. **Hooks** — lifecycle event handlers that run during Claude Code sessions
+2. **MCP Server** — Model Context Protocol server exposing tools to Claude
+
+#### Hooks
+
+Hooks are executable scripts in `plugin/hooks/` that respond to Claude Code events:
+
+**`SessionStart`** (`plugin/hooks/session-start`)
+- Injects the concept-detection skill into every new session
+- The skill provides LLM-level concept identification from conversation context
+- Runs at the start of each Claude Code session
+
+**`UserPromptSubmit`** (`plugin/hooks/user-prompt-submit.js`)
+- Handles login detection (`"entendi login"` pattern)
+- Manages pending probes from the mastery tracking system
+- Detects teach-me requests and triggers Socratic tutor sessions
+- Runs before each user prompt is processed
+
+**Other Hooks:**
+- `Stop` — cleanup when user stops generation
+- `SessionEnd` — session teardown
+- `PreCompact` — before context window compaction
+- `Notification` — handles system notifications
+
+Hooks communicate with the API server via HTTP and log to `~/.entendi/debug.log`.
+
+#### MCP Server
+
+The MCP server (`src/mcp/server.ts`) exposes tools that Claude can call during sessions:
+
+- `entendi_observe` — record that the user worked with a concept
+- `entendi_record_evaluation` — save probe response and score (0-3 rubric)
+- `entendi_start_tutor` — initiate a 4-phase Socratic tutor session
+- `entendi_advance_tutor` — progress through tutor phases
+- `entendi_dismiss` — user opts out of a probe
+- `entendi_get_status` — fetch current session status and pending probes
+- `entendi_get_zpd_frontier` — retrieve concepts in the user's Zone of Proximal Development
+- `entendi_login` — authenticate and link the user's account
+
+The MCP server communicates with Claude Code over stdio (standard input/output) and calls the HTTP API for data operations.
+
+### HTTP API
+
+The API (`src/api/`) is built with [Hono](https://hono.dev) and runs on Cloudflare Workers.
+
+#### Framework: Hono
+
+- Lightweight, fast web framework
+- Works on Node.js (local dev) and Cloudflare Workers (production)
+- Type-safe routing and middleware
+
+#### Authentication: Better Auth
+
+- Email/password authentication
+- Social login (GitHub, Google)
+- Organization support
+- API key management
+- Session handling
+
+API keys are stored in `~/.entendi/config.json` after login.
+
+#### Routes
+
+**Public:**
+- `GET /` — dashboard homepage
+- `GET /link` — account linking page
+- `GET /login` — sign in page
+- `GET /health` — health check
+
+**Authenticated:**
+- `POST /api/observe` — record concept observation
+- `POST /api/probe` — submit probe response
+- `POST /api/tutor` — tutor session operations
+- `GET /api/status` — user status and pending probes
+- `GET /api/zpd` — Zone of Proximal Development concepts
+- `GET /api/profile` — user profile and mastery data
+
+#### Deployment
+
+Production API runs on Cloudflare Workers:
+- Global edge network for low latency
+- V8 isolates (not containers) — fast cold starts
+- Configured in `wrangler.toml`
+
+Deploy with:
+```bash
+npx wrangler deploy
+```
+
+Staging environment:
+```bash
+npm run deploy:staging
+```
+
+### Database
+
+**Neon PostgreSQL** — serverless Postgres with:
+- Automatic scaling
+- Branching for development
+- Connection pooling
+- Instant schema migrations
+
+#### ORM: Drizzle
+
+Schema defined in `src/api/db/schema.ts`.
+
+**Key Tables:**
+- `users` — user accounts
+- `sessions` — authentication sessions
+- `concepts` — technical concepts in the knowledge graph
+- `masteries` — user mastery levels for concepts
+- `observations` — concept observation events
+- `probes` — comprehension probe responses
+- `tutor_sessions` — Socratic tutor session state
+
+**Migrations:**
+```bash
+npm run db:generate   # Generate from schema changes
+npm run db:migrate    # Apply migrations
+npm run db:push       # Push directly (dev only)
+```
+
+### Dashboard
+
+The dashboard (`src/dashboard/`) is a static site served from `public/`:
+
+- Vanilla JS + ECharts for visualizations
+- Server-side rendered HTML with Hono
+- Content-hashed assets for cache busting
+- Responsive design
+
+**Pages:**
+- `/` — knowledge profile with mastery visualizations
+- `/login` — authentication
+- `/link` — account linking for CLI
+
+**Build Process:**
+
+The build (`esbuild.config.ts`) generates:
+1. Minified JS/CSS bundles with content hashes
+2. Asset manifest (`public/assets/manifest.json`)
+3. Importable manifest module (`src/dashboard/manifest.ts`)
+
+Hono injects hashed asset URLs at runtime.
+
+## Data Flow
+
+### Concept Detection
+
+1. User and Claude have a conversation in Claude Code
+2. The concept-detection skill (injected by SessionStart hook) identifies technical concepts
+3. Claude calls `entendi_observe` MCP tool
+4. MCP server POSTs to `/api/observe`
+5. API records observation and updates mastery model
+6. Bayesian inference determines if a probe should be issued
+
+### Probing
+
+1. API decides a probe is warranted (low confidence, high info gain)
+2. UserPromptSubmit hook fetches pending probes via `/api/status`
+3. Hook injects probe question into Claude's context
+4. Claude asks the question naturally after completing the user's request
+5. User responds
+6. Claude scores response (0-3 rubric) and calls `entendi_record_evaluation`
+7. MCP server POSTs to `/api/probe`
+8. API updates mastery model with Graded Response Model
+9. Spaced repetition scheduler determines next probe time
+
+### Tutoring
+
+1. User scores low (0-1) on a probe
+2. Claude calls `entendi_start_tutor`
+3. API creates tutor session with 4 phases:
+   - **Assess** — identify misconception
+   - **Guide** — Socratic questioning
+   - **Correct** — explicit instruction
+   - **Verify** — confirm understanding
+4. Claude calls `entendi_advance_tutor` to progress through phases
+5. Final assessment updates mastery model
+
+## Build Pipeline
+
+The build process (`esbuild.config.ts`) orchestrates multiple outputs:
+
+### 1. Hook Bundles
+
+```
+src/hooks/*.ts → dist/hooks/*.js
+```
+
+- Bundle each hook as an executable Node.js script
+- Set shebang: `#!/usr/bin/env node`
+- External: `@anthropic-ai/sdk`
+- Target: Node 22
+
+### 2. MCP Server Bundle
+
+```
+src/mcp/server.ts → dist/mcp/server.js
+```
+
+- Bundle MCP server as executable
+- Include all dependencies except `@anthropic-ai/sdk`
+- Target: Node 22
+
+### 3. Plugin Assembly
+
+```
+plugin/ + dist/hooks/ + dist/mcp/ → dist/plugin/
+```
+
+- Clean `dist/plugin/` (prevents stale files)
+- Copy plugin metadata from `plugin/.claude-plugin/`
+- Copy built hook bundles
+- Copy MCP server bundle
+- Stamp plugin version with git hash (busts Claude Code cache)
+
+### 4. Dashboard Assets
+
+```
+src/dashboard/*.{js,css} → public/assets/[name]-[hash].{js,css}
+```
+
+- Minify and content-hash all assets
+- Generate manifest with original → hashed filename mapping
+- Create importable manifest module for Workers runtime
+
+### 5. CLI Bundle
+
+```
+src/cli/init.ts → dist/cli/init.js
+```
+
+- Bundle CLI entrypoint
+- Copy templates to `dist/cli/templates/`
+
+## Plugin Version Stamping
+
+Claude Code caches plugins aggressively. To ensure updates are picked up:
+
+1. Build stamps plugin version with git hash
+   ```
+   0.2.0 → 0.2.0+a3f2c1b
+   ```
+2. Each rebuild generates a new hash
+3. Claude Code sees different version and reloads
+
+`npm run plugin:reinstall` handles this automatically.
+
+## Security
+
+### Authentication
+
+- Session tokens stored securely in cookies (httpOnly, secure, sameSite)
+- API keys stored in `~/.entendi/config.json` (mode 0600)
+- Better Auth handles password hashing (bcrypt)
+- CSRF protection on state-changing endpoints
+
+### Data Privacy
+
+- Observations only store concept identifiers, not code/conversation content
+- Probe responses stored as scores (0-3), not full text
+- User data isolated by account
+- No telemetry or third-party analytics
+
+### API Security
+
+- Rate limiting on authentication endpoints
+- CORS configured for known origins
+- Input validation with Zod schemas
+- SQL injection protection via Drizzle ORM parameterized queries
+
+## Performance
+
+### Edge Computing
+
+- Cloudflare Workers run on 300+ data centers globally
+- V8 isolates start in less than 1ms (vs containers ~100ms)
+- Automatic request routing to nearest edge node
+
+### Database Pooling
+
+- Neon provides connection pooling
+- Workers use `@neondatabase/serverless` driver optimized for edge
+- Connections scale automatically with load
+
+### Asset Optimization
+
+- Content-hashed filenames enable long cache headers
+- Minified JS/CSS
+- ECharts tree-shaken to only included used modules
+- Cloudflare CDN caches static assets globally
+
+## Testing
+
+### Unit Tests
+
+- Vitest for all business logic
+- Tests in `src/**/*.test.ts`
+- Run with `npm test`
+
+### Integration Tests
+
+- Test full MCP → API → Database flow
+- Mock Claude Code environment
+- Validate hook behavior
+
+### Devcontainer Testing
+
+- Isolated environment simulates fresh user install
+- Tests plugin installation and activation
+- Validates hook execution
+- Run with `.devcontainer/test-plugin.sh`
+
+## Monitoring
+
+### Debug Logging
+
+- All hooks, MCP calls, and API requests logged
+- Location: `~/.entendi/debug.log`
+- Includes timestamps, request/response bodies, errors
+
+### Cloudflare Observability
+
+- Worker analytics dashboard
+- Request volume, latency, error rate
+- Enabled in `wrangler.toml`:
+  ```toml
+  [observability]
+  enabled = true
+  head_sampling_rate = 1
+  ```
+
+### Database Monitoring
+
+- Neon dashboard shows connection count, query performance
+- Slow query alerts
+- Storage usage tracking
+
+## Tech Stack Summary
+
+| Component | Technology | Why |
+|-----------|-----------|-----|
+| Runtime | Node.js 22 | Latest LTS, native TypeScript support |
+| API Framework | Hono | Fast, works on Workers and Node |
+| Database | Neon PostgreSQL | Serverless, auto-scaling, branching |
+| ORM | Drizzle | Type-safe, minimal overhead |
+| Auth | Better Auth | Modern, extensible, org support |
+| Edge Platform | Cloudflare Workers | Global, fast cold starts, low cost |
+| Build Tool | esbuild | Fast, handles TS/JS/CSS |
+| Test Framework | Vitest | Fast, compatible with Vite |
+| MCP | @modelcontextprotocol/sdk | Official SDK for Claude integration |
+| Charts | ECharts | Rich visualizations, tree-shakeable |
