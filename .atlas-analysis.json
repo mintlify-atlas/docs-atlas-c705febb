@@ -1,0 +1,133 @@
+{
+  "projectType": "saas",
+  "projectName": "Entendi",
+  "projectDescription": "Comprehension accountability layer for AI-assisted work that tracks and teaches technical concepts during coding sessions.",
+  "theme": "willow",
+  "primaryColor": "#6366f1",
+  "lightColor": "#818cf8",
+  "darkColor": "#4f46e5",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/concept-detection",
+              "features/bayesian-mastery",
+              "features/probe-system",
+              "features/socratic-tutor",
+              "features/knowledge-graph"
+            ]
+          },
+          {
+            "group": "Using Entendi",
+            "pages": [
+              "usage/dashboard",
+              "usage/login",
+              "usage/organizations",
+              "usage/billing"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/setup",
+              "development/architecture",
+              "development/contributing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "MCP Tools",
+            "pages": [
+              "api/mcp/overview",
+              "api/mcp/observe",
+              "api/mcp/record-evaluation",
+              "api/mcp/tutor",
+              "api/mcp/query"
+            ]
+          },
+          {
+            "group": "REST API",
+            "pages": [
+              "api/rest/authentication",
+              "api/rest/analytics",
+              "api/rest/concepts",
+              "api/rest/courses",
+              "api/rest/mastery"
+            ]
+          },
+          {
+            "group": "Core Exports",
+            "pages": [
+              "api/core/probabilistic-model",
+              "api/core/knowledge-graph",
+              "api/core/probe-engine",
+              "api/core/tutor-engine"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "LLM-based concept detection from code and conversation",
+    "Bayesian mastery tracking with Graded Response Model",
+    "Adaptive probing system with comprehension rubric",
+    "4-phase Socratic tutor for low-mastery concepts",
+    "Real-time knowledge graph and spaced repetition",
+    "Claude Code plugin with MCP integration",
+    "Dashboard for knowledge profile visualization",
+    "Organization support with role-based access"
+  ],
+  "publicApiSurface": [
+    "entendi_observe",
+    "entendi_record_evaluation",
+    "entendi_start_tutor",
+    "entendi_advance_tutor",
+    "entendi_dismiss",
+    "entendi_get_status",
+    "entendi_get_zpd_frontier",
+    "entendi_login",
+    "POST /api/analytics/events",
+    "GET /api/analytics/snapshots/:userId",
+    "GET /api/concepts",
+    "POST /api/concepts",
+    "GET /api/courses",
+    "POST /api/courses",
+    "GET /api/mastery/:userId",
+    "POST /api/mastery/update",
+    "POST /api/hooks/session-start",
+    "POST /api/hooks/user-prompt-submit",
+    "POST /api/hooks/session-end",
+    "bayesianUpdate",
+    "grmUpdate",
+    "grmBayesianUpdate",
+    "shouldProbe",
+    "selectConceptToProbe",
+    "generateProbe",
+    "evaluateResponse",
+    "buildPhase1Prompt",
+    "buildPhase2Prompt",
+    "buildPhase3Prompt",
+    "buildPhase4Prompt",
+    "KnowledgeGraph",
+    "StateManager",
+    "extractConceptsFromSource",
+    "extractConceptsViaLLM"
+  ]
+}
