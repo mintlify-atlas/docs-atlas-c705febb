@@ -1,0 +1,171 @@
+---
+title: 'entendi_login'
+description: 'Authenticate and link your device to your Entendi account via device code flow'
+---
+
+## Overview
+
+The `entendi_login` MCP tool implements a two-phase device code authentication flow:
+
+1. **Start login** — Opens browser to link device
+2. **Complete login** — Polls for confirmation and saves API key
+
+This is the only MCP tool available before authentication. All other tools require a valid API key.
+
+## Parameters
+
+<ParamField path="code" type="string">
+  Optional device code from a previous login attempt. Omit to start a new login flow.
+</ParamField>
+
+## Two-Phase Flow
+
+### Phase 1: Start Login
+
+Call `entendi_login` without parameters to begin:
+
+```typescript
+await mcp.call('entendi_login', {});
+```
+
+**Response:**
+
+```json
+{
+  "content": [{
+    "type": "text",
+    "text": "A browser window has been opened. Please sign in and click 'Confirm Link'.\n\nYour device code is: ABC123\nIt expires at: 2026-03-03T22:00:00Z\n\nAfter confirming in the browser, call entendi_login again with code 'ABC123' to retrieve your API key."
+  }]
+}
+```
+
+This:
+- Creates a device code with 10-minute expiration
+- Opens browser to `https://entendi.dev/link?code=ABC123`
+- Returns the code for phase 2
+
+### Phase 2: Complete Login
+
+After confirming in the browser, call `entendi_login` with the code:
+
+```typescript
+await mcp.call('entendi_login', { code: 'ABC123' });
+```
+
+The tool will:
+1. Poll the API every 2 seconds (max 30 seconds)
+2. Wait for browser confirmation
+3. Retrieve the API key
+4. Save to `~/.entendi/config.json`
+5. Notify the MCP client that authenticated tools are now available
+
+**Success response:**
+
+```json
+{
+  "content": [{
+    "type": "text",
+    "text": "Login successful! Your API key has been saved to ~/.entendi/config.json\n\nAuthenticated tools are now available. Restart your MCP client to load them."
+  }]
+}
+```
+
+## Device Code Lifecycle
+
+<Steps>
+  <Step title="Code generation">
+    6-character alphanumeric code created via `POST /api/device-code`
+  </Step>
+  <Step title="Browser verification">
+    User signs in at `entendi.dev/link?code=ABC123` and clicks **Confirm Link**
+  </Step>
+  <Step title="Polling">
+    MCP server polls `GET /api/device-code/{code}` every 2 seconds for up to 30 seconds
+  </Step>
+  <Step title="API key retrieval">
+    When `status: "confirmed"`, the API key is included in the response
+  </Step>
+  <Step title="Config persistence">
+    API key saved to `~/.entendi/config.json` for future sessions
+  </Step>
+</Steps>
+
+## Error Handling
+
+### Code Expired
+
+Device codes expire after 10 minutes. If expired, start a new login flow:
+
+```json
+{
+  "error": "Device code expired",
+  "code": "ABC123",
+  "expiresAt": "2026-03-03T21:50:00Z"
+}
+```
+
+### Polling Timeout
+
+If the user doesn't confirm within 30 seconds, the poll times out:
+
+```json
+{
+  "content": [{
+    "type": "text",
+    "text": "Login timed out. The code is still valid for 10 minutes. Call entendi_login with code 'ABC123' again after confirming in the browser."
+  }]
+}
+```
+
+### Browser Open Failure
+
+If the browser fails to open automatically, the tool returns the verification URL:
+
+```
+Couldn't open browser automatically. Please visit:
+https://entendi.dev/link?code=ABC123
+```
+
+## Config File
+
+The API key is saved to `~/.entendi/config.json`:
+
+```json
+{
+  "apiKey": "ek_abc123...",
+  "apiUrl": "https://api.entendi.dev"
+}
+```
+
+This file is read on MCP server startup. When present, all authenticated tools are enabled.
+
+## Implementation
+
+The login flow is implemented in:
+- **MCP server**: `src/mcp/server.ts:entendi_login` (tool handler)
+- **API client**: `src/mcp/api-client.ts:createDeviceCode`, `pollDeviceCode`
+- **REST endpoints**:
+  - `POST /api/device-code` — Create code
+  - `GET /api/device-code/{code}` — Poll for confirmation
+  - `POST /api/device-code/{code}/confirm` — Browser confirmation (from dashboard)
+- **Dashboard**: `src/api/routes/dashboard.ts:/link` (renders confirmation page)
+
+## Security
+
+- Device codes are **single-use** — deleted after confirmation
+- Codes expire after **10 minutes**
+- Polling is **rate-limited** to prevent abuse
+- API keys use **Better Auth** token generation (cryptographically secure)
+- Config file is stored with **user-only read permissions** (chmod 600)
+
+## Related Tools
+
+- [observe](/api/mcp/observe) — Requires authentication
+- [query](/api/mcp/query) — Requires authentication
+- All other MCP tools require a valid API key from `entendi_login`
+
+## Alternatives
+
+For non-MCP use cases, see:
+- [Dashboard login](/usage/login) — Email/password and OAuth
+- [API authentication](/api/rest/authentication) — Session cookies and bearer tokens

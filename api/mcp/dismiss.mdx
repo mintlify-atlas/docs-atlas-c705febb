@@ -1,0 +1,108 @@
+---
+title: 'entendi_dismiss'
+description: 'Dismiss pending probes or tutor sessions with categorized reasons'
+---
+
+## Overview
+
+The `entendi_dismiss` MCP tool allows you to dismiss a pending probe or tutor session when it's not appropriate to answer. Dismissals are tracked and affect probe scheduling based on the reason provided.
+
+## Parameters
+
+<ParamField path="reason" type="enum" required>
+  Why the probe is being dismissed. One of:
+  - `topic_change` — Conversation shifted to a different topic (no penalty)
+  - `busy` — User is occupied, defer to next session (auto-scores 0 after 3 deferrals)
+  - `claimed_expertise` — User claims they already know this (auto-scores 0 immediately)
+</ParamField>
+
+<ParamField path="note" type="string">
+  Optional context about the dismissal (max 500 characters)
+</ParamField>
+
+## Response
+
+<ResponseField name="status" type="string">
+  Confirmation status, typically `"dismissed"`
+</ResponseField>
+
+<ResponseField name="deferralCount" type="number">
+  How many times this probe has been deferred with `busy` reason
+</ResponseField>
+
+<ResponseField name="autoscoredZero" type="boolean">
+  Whether an automatic score of 0 was applied
+</ResponseField>
+
+## Dismissal Reasons
+
+### topic_change
+
+Use when the conversation has naturally moved away from the concept being probed.
+
+- **No penalty** applied to mastery
+- Probe is **not re-queued**
+- Concept remains in candidate pool for future sessions
+
+### busy
+
+Use when the user is focused on something else and can't respond right now.
+
+- Probe is **re-queued** for the next session
+- After **3 deferrals**, automatically scores 0 (low mastery signal)
+- Use sparingly — repeated busy dismissals indicate scheduling issues
+
+### claimed_expertise
+
+Use when the user explicitly states they already know the concept.
+
+- **Immediately scores 0** as a rubric score
+- Treated as failed probe attempt (high confidence in low mastery)
+- Only use when the user explicitly claims knowledge without demonstrating it
+
+<Warning>
+Avoid `claimed_expertise` unless the user explicitly claims to know the material. This is a strong negative signal.
+</Warning>
+
+## Usage Example
+
+```typescript
+// Dismiss because conversation shifted topics
+await mcp.call('entendi_dismiss', {
+  reason: 'topic_change',
+  note: 'User switched to debugging a separate issue'
+});
+
+// Defer to next session
+await mcp.call('entendi_dismiss', {
+  reason: 'busy',
+  note: 'User is in the middle of a complex refactor'
+});
+
+// User claims expertise
+await mcp.call('entendi_dismiss', {
+  reason: 'claimed_expertise',
+  note: 'User said "I already know how React hooks work"'
+});
+```
+
+## Implementation
+
+Dismissals are stored in the `dismissal_events` table with:
+- User ID
+- Concept ID
+- Reason
+- Note
+- Timestamp
+- Auto-score status
+
+The dismissal logic is implemented in:
+- MCP server: `src/mcp/server.ts:entendi_dismiss`
+- API endpoint: `POST /api/hooks/dismiss`
+- Database: `dismissal_events` table in `src/api/db/schema.ts`
+
+## Related Tools
+
+- [observe](/api/mcp/observe) — Generates probes that can be dismissed
+- [record-evaluation](/api/mcp/record-evaluation) — Alternative to dismissal when user responds
+- [query](/api/mcp/query) — View dismissal statistics in mastery state

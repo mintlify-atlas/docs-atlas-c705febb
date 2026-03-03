@@ -70,7 +70,9 @@
               "api/mcp/observe",
               "api/mcp/record-evaluation",
               "api/mcp/tutor",
-              "api/mcp/query"
+              "api/mcp/query",
+              "api/mcp/dismiss",
+              "api/mcp/login"
             ]
           },
           {
